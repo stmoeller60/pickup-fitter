@@ -25,10 +25,7 @@
 <body>
   <h1>Pickup Model Fitter – LM Version</h1>
   <div class="muted">Eine einzelne HTML-Datei. Läuft direkt im Browser per Doppelklick. Importiert TXT/CSV/TSV mit zwei Spalten: Frequenz(Hz), Pegel(dB). Optimierung per Levenberg-Marquardt.</div>
- <h2>Schaltbild</h2>
-  <div style="text-align:center; margin:20px;">
-<img src="schaltbild.png" style="width:5%; height:auto;">
-  </div>
+
   <div class="panel">
     <div class="row">
       <input type="file" id="fileInput" accept=".txt,.csv,.tsv" />
@@ -47,7 +44,7 @@
         <input id="inductance" type="number" value="1" step="0.01" />
       </div>
       <div>
-        <label for="rin">RL / Rin [ohm]</label>
+        <label for="rin">Rin [ohm]</label>
         <input id="rin" type="number" value="650000" step="1000" />
       </div>
       <div>
@@ -136,15 +133,13 @@ function modelDb(freq, p){
   const w = 2*Math.PI*freq;
   const cTotal = (p.cinPf + p.cExtraPf) * 1e-12;
   const rd = p.rdK * 1e3;
-  const rl = p.rlK * 1e3;
   const gain = Math.pow(10, p.gainDb/20);
 
   const zs = complex(p.r1, w*p.l1);
   const yc = complex(0, w*cTotal);
   const yrin = complex(1/p.rin, 0);
-  const yrl = complex(1/rl, 0);
   const yloss = cInv(complex(rd, w*p.ldH));
-  const ysh = cAdd(cAdd(cAdd(yc, yrin), yrl), yloss);
+  const ysh = cAdd(cAdd(yc, yrin), yloss);
   const zsh = cInv(ysh);
   const h = cDiv(cMul(complex(gain,0), zsh), cAdd(zs, zsh));
   return 20*Math.log10(Math.max(cAbs(h), 1e-15));
@@ -162,7 +157,6 @@ function paramsToX(p, fitGain){
   const x = [
     Math.log(p.cExtraPf),
     Math.log(p.rdK),
-    Math.log(p.rlK),
     Math.log(p.ldH)
   ];
   if(fitGain) x.push(p.gainDb);
@@ -174,16 +168,15 @@ function xToParams(x, base, fitGain, fixedGainDb){
     ...base,
     cExtraPf: Math.exp(x[0]),
     rdK: Math.exp(x[1]),
-    rlK: Math.exp(x[2]),
-    ldH: Math.exp(x[3]),
-    gainDb: fitGain ? x[4] : fixedGainDb
+    ldH: Math.exp(x[2]),
+    gainDb: fitGain ? x[3] : fixedGainDb
   };
 }
 
 function bounds(fitGain, fixedGainDb){
   const b = {
-    lo: [Math.log(1), Math.log(0.1), Math.log(1), Math.log(1e-4)],
-    hi: [Math.log(5000), Math.log(100000), Math.log(100000), Math.log(100)]
+    lo: [Math.log(1), Math.log(0.1), Math.log(1e-4)],
+    hi: [Math.log(5000), Math.log(100000), Math.log(100)]
   };
   if(fitGain){
     b.lo.push(-120);
@@ -261,7 +254,6 @@ function lmOptimize(base, fitGain, floorWeighting){
     ...base,
     cExtraPf: 300,
     rdK: 20,
-    rlK: 100000,
     ldH: 1.0,
     gainDb: fitGain ? -70 : fixedGainDb
   };
@@ -329,12 +321,11 @@ function renderResult(p){
   const rows = [
     ["Rdc / R1", `${p.r1.toFixed(3)} ohm`],
     ["L", `${p.l1.toFixed(6)} H`],
-    ["RL / Rin", `${p.rin.toFixed(3)} ohm`],
+    ["Rin", `${p.rin.toFixed(3)} ohm`],
     ["CL / Cin", `${p.cinPf.toFixed(3)} pF`],
-    ["C_extra", `${p.cExtraPf.toFixed(3)} pF`],
+    ["Cp / C_extra", `${p.cExtraPf.toFixed(3)} pF`],
     ["C_total", `${p.cTotalPf.toFixed(3)} pF`],
     ["Rd", `${p.rdK.toFixed(3)} kΩ`],
-    ["Rl", `${p.rlK.toFixed(3)} kΩ`],
     ["Ld", `${p.ldH.toFixed(6)} H`],
     ["Gain", `${p.gainDb.toFixed(3)} dB`],
     ["RMSE", `${p.rmse.toFixed(3)} dB`],
