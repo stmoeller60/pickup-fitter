@@ -14,20 +14,20 @@
   label { display: block; font-size: 13px; margin-bottom: 4px; }
   input[type="number"], input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; }
   button { padding: 10px 16px; cursor: pointer; }
-  #canvas { border: 1px solid #ccc; background:#fff; width: 100%; max-width: 1100px; height: 560px; display: block; }
-  table { border-collapse: collapse; margin-top: 12px; width: 100%; max-width: 700px; }
+  canvas { border: 1px solid #ccc; background:#fff; width: 100%; max-width: 1100px; height: 560px; display: block; }
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; max-width: 760px; }
   td, th { border: 1px solid #ddd; padding: 6px 10px; text-align: right; }
   td:first-child, th:first-child { text-align: left; }
   pre { background: #f7f7f7; padding: 12px; overflow: auto; border-radius: 6px; }
   .ok { color:#0a7a2f; }
+  .small { font-size: 12px; color:#555; }
 </style>
 </head>
 <body>
   <h1>Pickup Fitter – 2 Zweige eingeschränkt</h1>
   <div class="muted">
-    Importiert TXT/CSV/TSV mit 2 Spalten: Frequenz(Hz), Pegel(dB).
-    Gefittet wird das Modell:
-    Rdc + L in Serie, danach parallel nach GND: Cload + Cextra, Rin,
+    Importiert TXT/CSV/TSV mit 2 Spalten: Frequenz(Hz), Pegel(dB).<br>
+    Modell: Rdc + L in Serie, danach parallel nach GND: Cload + Cextra, Rin,
     Rd1 + (Ld1 || Cd1), Rd2 + (Ld2 || Cd2), mit Nebenbedingungen Ld1 &gt; Ld2 und Cd2 &gt; Cd1.
   </div>
 
@@ -35,7 +35,8 @@
     <div class="row">
       <input type="file" id="fileInput" accept=".txt,.csv,.tsv" />
       <button id="fitBtn">Fit starten</button>
-      <button id="plotBtn">Nur plotten</button>
+      <button id="plotBtn">Nur Messung/Fit plotten</button>
+      <button id="simulateBtn">Lastvergleich plotten</button>
       <button id="downloadBtn">Ergebnis als CSV speichern</button>
     </div>
 
@@ -58,13 +59,39 @@
       </div>
     </div>
 
+    <div class="grid">
+      <div>
+        <label for="rin2">Rin2 [ohm]</label>
+        <input id="rin2" type="number" value="250000" step="1000" />
+      </div>
+      <div>
+        <label for="cload2">C_load2 [pF]</label>
+        <input id="cload2" type="number" value="470" step="1" />
+      </div>
+      <div></div>
+      <div></div>
+    </div>
+
     <div class="row">
       <label><input type="checkbox" id="floorWeight" checked /> Noise-Floor schwächer gewichten</label>
       <span id="status" class="muted">Noch keine Datei geladen.</span>
     </div>
+
+    <div class="small">
+      Nach dem Fit kannst du mit <b>Rin2 / C_load2</b> einen zweiten Lastfall simulieren.
+      Das ist nur eine Plausibilitätsprüfung des Modells, keine echte Validierung.
+    </div>
   </div>
 
-  <canvas id="canvas" width="1100" height="560"></canvas>
+  <div class="panel">
+    <h3>Plot 1: Messung und Fit</h3>
+    <canvas id="canvasFit" width="1100" height="560"></canvas>
+  </div>
+
+  <div class="panel">
+    <h3>Plot 2: Lastvergleich des gefitteten Modells</h3>
+    <canvas id="canvasLoad" width="1100" height="560"></canvas>
+  </div>
 
   <div class="panel">
     <h3>Fit-Ergebnis</h3>
@@ -84,11 +111,11 @@
 let data = [];
 let lastModel = [];
 let lastParams = null;
+let lastLoadSim1 = [];
+let lastLoadSim2 = [];
 
-// -------------------- Complex helpers --------------------
 function complex(re, im){ return {re, im}; }
 function cAdd(a,b){ return {re:a.re+b.re, im:a.im+b.im}; }
-function cSub(a,b){ return {re:a.re-b.re, im:a.im-b.im}; }
 function cMul(a,b){ return {re:a.re*b.re-a.im*b.im, im:a.re*b.im+a.im*b.re}; }
 function cDiv(a,b){
   const d = b.re*b.re + b.im*b.im;
@@ -100,7 +127,6 @@ function cInv(a){
 }
 function cAbs(a){ return Math.hypot(a.re, a.im); }
 
-// -------------------- File parsing --------------------
 function parseText(text){
   const lines = text
     .split(/\r?\n/)
@@ -129,10 +155,12 @@ document.getElementById("fileInput").addEventListener("change", async (e) => {
   document.getElementById("preview").textContent = data.slice(0, 30).map(d => `${d.f}\t${d.db}`).join("\n");
   lastModel = [];
   lastParams = null;
-  drawPlot();
+  lastLoadSim1 = [];
+  lastLoadSim2 = [];
+  drawFitPlot();
+  drawLoadPlot();
 });
 
-// -------------------- Base inputs --------------------
 function getBase(){
   return {
     rdc: Number(document.getElementById("rdc").value),
@@ -142,17 +170,13 @@ function getBase(){
   };
 }
 
-// -------------------- Model --------------------
-// x = [
-//   cExtraPf,
-//   rd1_kohm,
-//   ld2_h,
-//   dLdLog,   بحيث ld1 = ld2 + exp(dLdLog)
-//   cd1_pf,
-//   rd2_kohm,
-//   dCdLog,   بحيث cd2 = cd1 + exp(dCdLog)
-//   gainDb
-// ]
+function getAltLoad(){
+  return {
+    rin2: Number(document.getElementById("rin2").value),
+    cloadPf2: Number(document.getElementById("cload2").value),
+  };
+}
+
 function xToParams(x, base){
   const cExtraPf = x[0];
   const rd1K = x[1];
@@ -187,32 +211,26 @@ function modelDb(freq, p){
 
   const zs = complex(p.rdc, w * p.lmain);
 
-  // branch 1: Rd1 + (Ld1 || Cd1)
   const zL1 = complex(0, w * p.ld1H);
   const zC1 = complex(0, -1 / (w * cd1));
   const zPar1 = cInv(cAdd(cInv(zL1), cInv(zC1)));
   const zLoss1 = cAdd(complex(rd1, 0), zPar1);
 
-  // branch 2: Rd2 + (Ld2 || Cd2)
   const zL2 = complex(0, w * p.ld2H);
   const zC2 = complex(0, -1 / (w * cd2));
   const zPar2 = cInv(cAdd(cInv(zL2), cInv(zC2)));
   const zLoss2 = cAdd(complex(rd2, 0), zPar2);
 
-  // shunt admittance
-  const yC = complex(0, w * cTotal);
-  const yRin = complex(1 / p.rin, 0);
-  const yLoss1 = cInv(zLoss1);
-  const yLoss2 = cInv(zLoss2);
+  let ySh = complex(0, w * cTotal);
+  ySh = cAdd(ySh, complex(1 / p.rin, 0));
+  ySh = cAdd(ySh, cInv(zLoss1));
+  ySh = cAdd(ySh, cInv(zLoss2));
 
-  const ySh = cAdd(cAdd(yC, yRin), cAdd(yLoss1, yLoss2));
   const zSh = cInv(ySh);
-
   const h = cDiv(cMul(complex(gain, 0), zSh), cAdd(zs, zSh));
   return 20 * Math.log10(Math.max(cAbs(h), 1e-15));
 }
 
-// -------------------- Optimization --------------------
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
 function bounds(){
@@ -365,7 +383,18 @@ function lmOptimize(base, floorWeighting){
   return best;
 }
 
-// -------------------- Rendering --------------------
+function simulateLoads(){
+  if(!lastParams) return;
+
+  const alt = getAltLoad();
+
+  const p1 = {...lastParams};
+  const p2 = {...lastParams, rin: alt.rin2, cloadPf: alt.cloadPf2};
+
+  lastLoadSim1 = data.map(d => ({f:d.f, db:modelDb(d.f, p1)}));
+  lastLoadSim2 = data.map(d => ({f:d.f, db:modelDb(d.f, p2)}));
+}
+
 function renderResult(p){
   const rows = [
     ["Rdc", `${p.rdc.toFixed(3)} ohm`],
@@ -391,28 +420,7 @@ function renderResult(p){
     rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("");
 }
 
-function drawPlot(){
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
-  const W = canvas.width, H = canvas.height;
-
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0,0,W,H);
-
-  if(data.length === 0){
-    ctx.fillStyle = "#666";
-    ctx.font = "16px Arial";
-    ctx.fillText("Noch keine Daten geladen.", 40, 50);
-    return;
-  }
-
-  const allY = [...data.map(d=>d.db), ...lastModel.map(d=>d.model)];
-  const yMin = Math.min(...allY) - 1;
-  const yMax = Math.max(...allY) + 1;
-  const xMin = Math.min(...data.map(d=>d.f));
-  const xMax = Math.max(...data.map(d=>d.f));
-
+function drawAxes(ctx, W, H, xMin, xMax, yMin, yMax){
   const left = 70, right = 20, top = 20, bottom = 45;
   const PW = W - left - right, PH = H - top - bottom;
 
@@ -453,30 +461,6 @@ function drawPlot(){
   ctx.lineTo(left+PW, top+PH);
   ctx.stroke();
 
-  // Measurement
-  ctx.strokeStyle = "#1f77b4";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  data.forEach((d,i) => {
-    const x = xMap(d.f), y = yMap(d.db);
-    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-  });
-  ctx.stroke();
-
-  // Model
-  if(lastModel.length){
-    ctx.strokeStyle = "#2ca02c";
-    ctx.setLineDash([7,4]);
-    ctx.lineWidth = 2.3;
-    ctx.beginPath();
-    lastModel.forEach((d,i) => {
-      const x = xMap(d.f), y = yMap(d.model);
-      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
   ctx.fillStyle = "#111";
   ctx.font = "14px Arial";
   ctx.fillText("Frequenz (Hz)", left + PW/2 - 40, H - 8);
@@ -486,6 +470,55 @@ function drawPlot(){
   ctx.rotate(-Math.PI/2);
   ctx.fillText("Pegel (dB)", 0, 0);
   ctx.restore();
+
+  return {xMap, yMap};
+}
+
+function drawFitPlot(){
+  const canvas = document.getElementById("canvasFit");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0,0,W,H);
+
+  if(data.length === 0){
+    ctx.fillStyle = "#666";
+    ctx.font = "16px Arial";
+    ctx.fillText("Noch keine Daten geladen.", 40, 50);
+    return;
+  }
+
+  const allY = [...data.map(d=>d.db), ...lastModel.map(d=>d.model)];
+  const yMin = Math.min(...allY) - 1;
+  const yMax = Math.max(...allY) + 1;
+  const xMin = Math.min(...data.map(d=>d.f));
+  const xMax = Math.max(...data.map(d=>d.f));
+
+  const maps = drawAxes(ctx, W, H, xMin, xMax, yMin, yMax);
+
+  ctx.strokeStyle = "#1f77b4";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  data.forEach((d,i) => {
+    const x = maps.xMap(d.f), y = maps.yMap(d.db);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  if(lastModel.length){
+    ctx.strokeStyle = "#2ca02c";
+    ctx.setLineDash([7,4]);
+    ctx.lineWidth = 2.3;
+    ctx.beginPath();
+    lastModel.forEach((d,i) => {
+      const x = maps.xMap(d.f), y = maps.yMap(d.model);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   ctx.fillStyle = "#1f77b4";
   ctx.fillRect(W-240, 28, 18, 3);
@@ -500,7 +533,70 @@ function drawPlot(){
   }
 }
 
-// -------------------- Actions --------------------
+function drawLoadPlot(){
+  const canvas = document.getElementById("canvasLoad");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0,0,W,H);
+
+  if(!lastParams || data.length === 0){
+    ctx.fillStyle = "#666";
+    ctx.font = "16px Arial";
+    ctx.fillText("Erst fitten, dann Lastvergleich plotten.", 40, 50);
+    return;
+  }
+
+  if(lastLoadSim1.length === 0 || lastLoadSim2.length === 0){
+    simulateLoads();
+  }
+
+  const allY = [...lastLoadSim1.map(d=>d.db), ...lastLoadSim2.map(d=>d.db)];
+  const yMin = Math.min(...allY) - 1;
+  const yMax = Math.max(...allY) + 1;
+  const xMin = Math.min(...data.map(d=>d.f));
+  const xMax = Math.max(...data.map(d=>d.f));
+
+  const maps = drawAxes(ctx, W, H, xMin, xMax, yMin, yMax);
+
+  ctx.strokeStyle = "#d62728";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  lastLoadSim1.forEach((d,i) => {
+    const x = maps.xMap(d.f), y = maps.yMap(d.db);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  ctx.strokeStyle = "#9467bd";
+  ctx.setLineDash([7,4]);
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  lastLoadSim2.forEach((d,i) => {
+    const x = maps.xMap(d.f), y = maps.yMap(d.db);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const rin1 = Number(document.getElementById("rin").value);
+  const cl1 = Number(document.getElementById("cload").value);
+  const rin2 = Number(document.getElementById("rin2").value);
+  const cl2 = Number(document.getElementById("cload2").value);
+
+  ctx.fillStyle = "#d62728";
+  ctx.fillRect(W-360, 28, 18, 3);
+  ctx.fillStyle = "#111";
+  ctx.fillText(`Last 1: Rin=${rin1}, CL=${cl1} pF`, W-335, 33);
+
+  ctx.fillStyle = "#9467bd";
+  ctx.fillRect(W-360, 52, 18, 3);
+  ctx.fillStyle = "#111";
+  ctx.fillText(`Last 2: Rin=${rin2}, CL=${cl2} pF`, W-335, 57);
+}
+
 function fitModel(){
   if(data.length < 5){
     alert("Bitte zuerst eine Datei laden.");
@@ -515,9 +611,29 @@ function fitModel(){
     const best = lmOptimize(base, floorWeighting);
     lastParams = best;
     renderResult(best);
-    drawPlot();
+
+    lastModel = data.map(d => ({
+      f: d.f,
+      measured: d.db,
+      model: modelDb(d.f, best),
+      err: modelDb(d.f, best) - d.db
+    }));
+
+    simulateLoads();
+    drawFitPlot();
+    drawLoadPlot();
+
     document.getElementById("status").innerHTML = 'Fit abgeschlossen mit <span class="ok">Levenberg-Marquardt</span>.';
   }, 10);
+}
+
+function simulateOnly(){
+  if(!lastParams){
+    alert("Bitte zuerst fitten.");
+    return;
+  }
+  simulateLoads();
+  drawLoadPlot();
 }
 
 function downloadCSV(){
@@ -538,10 +654,12 @@ function downloadCSV(){
 }
 
 document.getElementById("fitBtn").addEventListener("click", fitModel);
-document.getElementById("plotBtn").addEventListener("click", drawPlot);
+document.getElementById("plotBtn").addEventListener("click", drawFitPlot);
+document.getElementById("simulateBtn").addEventListener("click", simulateOnly);
 document.getElementById("downloadBtn").addEventListener("click", downloadCSV);
 
-drawPlot();
+drawFitPlot();
+drawLoadPlot();
 </script>
 </body>
 </html>
