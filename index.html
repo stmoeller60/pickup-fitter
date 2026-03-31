@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pickup Model Fitter</title>
 
 <style>
@@ -9,25 +10,21 @@ body {
   font-family: Arial;
   background:#111;
   color:#eee;
-  margin:20px;
+  margin:15px;
 }
-
 .panel {
   border:1px solid #333;
   padding:10px;
   margin-bottom:10px;
 }
-
 input, button {
   margin:4px;
 }
-
 canvas {
   width:100%;
-  height:180px;   /* <<< kleiner! */
+  height:180px;
   background:#000;
 }
-
 .grid {
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -35,6 +32,7 @@ canvas {
 }
 </style>
 </head>
+
 <body>
 
 <h2>Pickup Model Fitter</h2>
@@ -60,7 +58,7 @@ C [pF] <input id="loadC" value="0"><br>
 </div>
 
 <button onclick="runFit()">FIT</button>
-<button onclick="calcLoad()">Frequenzgang mit Last berechnen</button>
+<button onclick="calcLoad()">Frequenzgang mit Last</button>
 
 <pre id="params"></pre>
 
@@ -74,7 +72,7 @@ C [pF] <input id="loadC" value="0"><br>
 
 <script>
 
-// ---------- BASIC ----------
+// ---------- COMPLEX ----------
 function complex(r,i){ return {r,i}; }
 function add(a,b){ return {r:a.r+b.r,i:a.i+b.i}; }
 function inv(z){ let d=z.r*z.r+z.i*z.i; return {r:z.r/d,i:-z.i/d}; }
@@ -86,15 +84,15 @@ function abs(z){ return Math.hypot(z.r,z.i); }
 function ang(z){ return Math.atan2(z.i,z.r)*180/Math.PI; }
 
 // ---------- FILE ----------
-async function loadFile(inp){
- if(!inp.files[0]) return null;
- let t=await inp.files[0].text();
+async function loadFile(el){
+ if(!el.files[0]) return null;
+ let t=await el.files[0].text();
  let a=[];
  t.split(/\n/).forEach(l=>{
   let p=l.trim().split(/[\s,;]+/);
   if(p.length>=2) a.push([+p[0],+p[1]]);
  });
- return a;
+ return a.length?a:null;
 }
 
 // ---------- INTERP ----------
@@ -122,7 +120,6 @@ function model(p,f){
  }
 
  let Zsh = inv(Y);
-
  let H = div(Zsh, add(Zs,Zsh));
  let Zin = inv(add(inv(Zs),inv(Zsh)));
 
@@ -145,7 +142,7 @@ function randomP(){
   Rp:rand(1e4,2e5),
   L:rand(1,3),
   C:rand(80e-12,150e-12),
-  Rdc:rand(3e3,6e3),
+  Rdc:rand(3000,6000),
   Re:rand(1e4,1e5),
   Le:rand(0.5,5)
  };
@@ -159,12 +156,13 @@ function error(p,data){
 
   if(data.hmag){
     let w=1;
-    if(weightH.checked){
+    if(document.getElementById("weightH").checked){
       let lf=Math.log10(f), c=Math.log10(7000);
       w=1+3*Math.exp(-((lf-c)**2)/(2*0.42*0.42));
     }
     e+=((m.Hm-interp(f,data.hmag))*w)**2; n++;
   }
+
   if(data.hph){ e+=((m.Hp-interp(f,data.hph))/5)**2; n++; }
   if(data.zmag){ e+=((Math.log(m.Zm)-Math.log(interp(f,data.zmag)))/0.08)**2; n++; }
   if(data.zph){ e+=((m.Zp-interp(f,data.zph))/3)**2; n++; }
@@ -177,11 +175,16 @@ function error(p,data){
 async function runFit(){
 
  let data={
-  hmag:await loadFile(hmag),
-  hph:await loadFile(hph),
-  zmag:await loadFile(zmag),
-  zph:await loadFile(zph)
+  hmag:await loadFile(document.getElementById("hmag")),
+  hph:await loadFile(document.getElementById("hph")),
+  zmag:await loadFile(document.getElementById("zmag")),
+  zph:await loadFile(document.getElementById("zph"))
  };
+
+ if(!data.hmag && !data.hph && !data.zmag && !data.zph){
+  alert("Keine Daten geladen!");
+  return;
+ }
 
  freq=[];
  for(let i=0;i<300;i++){
@@ -204,18 +207,18 @@ async function runFit(){
  }
 
  bestParams=best;
- params.innerText=JSON.stringify(best,null,2);
+ document.getElementById("params").innerText=JSON.stringify(best,null,2);
 
  plotAll(best,data);
 }
 
-// ---------- LOAD SIM ----------
+// ---------- LOAD ----------
 function calcLoad(){
- if(!bestParams){ alert(\"erst fitten!\"); return; }
+ if(!bestParams){ alert("erst fitten!"); return; }
 
- let R=+loadR.value;
- let L=+loadL.value;
- let C=+loadC.value*1e-12;
+ let R=+document.getElementById("loadR").value;
+ let L=+document.getElementById("loadL").value;
+ let C=+document.getElementById("loadC").value*1e-12;
 
  let y=[];
 
@@ -224,22 +227,22 @@ function calcLoad(){
 
   let ZR=complex(R,0);
   let ZL=complex(0,w*L);
-  let ZC=complex(0,-1/(w*C||1e9));
+  let ZC=C>0?complex(0,-1/(w*C)):complex(1e12,0);
 
   let Y=add(inv(ZR),add(inv(ZL),inv(ZC)));
   let Zload=inv(Y);
 
   let m=model(bestParams,f);
 
-  y.push(m.Hm - 20*Math.log10(abs(Zload))); // simple load effect
+  y.push(m.Hm - 20*Math.log10(abs(Zload)));
  }
 
- plot(p5,freq,y,null);
+ plot(document.getElementById("p5"),freq,y,null);
 }
 
 // ---------- PLOT ----------
 function plot(c,x,y1,y2){
- let ctx=c.getContext(\"2d\");
+ let ctx=c.getContext("2d");
  ctx.clearRect(0,0,c.width,c.height);
 
  let xmin=Math.min(...x), xmax=Math.max(...x);
@@ -249,13 +252,13 @@ function plot(c,x,y1,y2){
  function tx(v){ return (Math.log10(v)-Math.log10(xmin))/(Math.log10(xmax)-Math.log10(xmin))*c.width; }
  function ty(v){ return c.height-(v-ymin)/(ymax-ymin)*c.height; }
 
- ctx.strokeStyle=\"red\";
+ ctx.strokeStyle="red";
  ctx.beginPath();
  x.forEach((v,i)=>{ let xx=tx(v),yy=ty(y1[i]); i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); });
  ctx.stroke();
 
  if(y2){
- ctx.strokeStyle=\"cyan\";
+ ctx.strokeStyle="cyan";
  ctx.beginPath();
  x.forEach((v,i)=>{ let xx=tx(v),yy=ty(y2[i]); i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); });
  ctx.stroke();
@@ -275,10 +278,10 @@ function plotAll(p,data){
   Zp.push(m.Zp);
  });
 
- plot(p1,freq,Hm,data.hmag&&freq.map(f=>interp(f,data.hmag)));
- plot(p2,freq,Hp,data.hph&&freq.map(f=>interp(f,data.hph)));
- plot(p3,freq,Zm,data.zmag&&freq.map(f=>interp(f,data.zmag)));
- plot(p4,freq,Zp,data.zph&&freq.map(f=>interp(f,data.zph)));
+ plot(document.getElementById("p1"),freq,Hm,data.hmag&&freq.map(f=>interp(f,data.hmag)));
+ plot(document.getElementById("p2"),freq,Hp,data.hph&&freq.map(f=>interp(f,data.hph)));
+ plot(document.getElementById("p3"),freq,Zm,data.zmag&&freq.map(f=>interp(f,data.zmag)));
+ plot(document.getElementById("p4"),freq,Zp,data.zph&&freq.map(f=>interp(f,data.zph)));
 }
 
 </script>
