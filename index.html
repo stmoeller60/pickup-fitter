@@ -119,7 +119,7 @@
     padding:10px;
     color:var(--green);
     font-size:12px;
-    min-height:92px;
+    min-height:110px;
   }
   .plots{
     display:grid;
@@ -162,8 +162,9 @@
 <div class="wrap">
   <h1>Pickup Model Fitter</h1>
   <div class="sub">
-    Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven.
-    Die Zusatzlast wird <b>nie</b> mitgefittet, sondern nur nachträglich auf das Modell angewendet.
+    Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven. Der Fit bleibt beim erneuten Start deutlich stabiler,
+    weil der letzte gute Parametersatz als Startpunkt wiederverwendet wird. Die Zusatzlast wird nie mitgefittet, sondern nur nachträglich
+    auf das Modell angewendet.
   </div>
 
   <div class="layout">
@@ -228,8 +229,8 @@
         </div>
         <div class="field"><label>C [pF]</label><input id="loadC" type="number" value="0"></div>
         <div class="small">
-          Diese Last wird als zusätzliche Shunt-Last am Ausgang behandelt und liefert den 5. Plot:
-          <b>belasteter H-Betrag</b>.
+          Diese Last wird als zusätzliche Shunt-Last am Ausgang verwendet und erzeugt den 5. Plot:
+          <b>H Betrag mit Last</b>.
         </div>
       </div>
 
@@ -237,6 +238,7 @@
         <div class="btns">
           <button id="fitBtn" class="primary">Fit berechnen</button>
           <button id="loadBtn">Frequenzgang mit Last berechnen</button>
+          <button id="resetBtn">Fit-Start zurücksetzen</button>
         </div>
         <div style="height:10px"></div>
         <div id="status" class="status">Bereit.</div>
@@ -262,6 +264,7 @@
 'use strict';
 
 let bestParams = null;
+let lastFitParams = null;
 let freq = [];
 let loadedData = null;
 
@@ -272,6 +275,7 @@ function complex(r,i){ return {r:r, i:i}; }
 function add(a,b){ return {r:a.r+b.r, i:a.i+b.i}; }
 function inv(z){
   const d = z.r*z.r + z.i*z.i;
+  if(d === 0) return {r:1e30, i:0};
   return {r:z.r/d, i:-z.i/d};
 }
 function div(a,b){
@@ -336,7 +340,6 @@ function buildFreqGrid(data){
 
 function model(p,f){
   const w = 2*Math.PI*f;
-
   const Zs = complex(p.Rdc, w*p.L);
 
   let Ysh = complex(1/p.Rp, w*p.C);
@@ -371,11 +374,12 @@ function randomParams(){
   };
 }
 
-function mutateParams(p){
+function mutateParams(p, fine){
   const q = JSON.parse(JSON.stringify(p));
   const keys = ['Rp','L','C','Rdc','Re','Le'];
   const k = keys[Math.floor(Math.random()*keys.length)];
-  q[k] *= rand(0.82, 1.18);
+  const scale = fine ? rand(0.96, 1.04) : rand(0.82, 1.18);
+  q[k] *= scale;
 
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
@@ -383,8 +387,44 @@ function mutateParams(p){
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
   q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
   q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
-
   return q;
+}
+
+function makeStartPopulation(){
+  const starts = [];
+
+  if(lastFitParams){
+    starts.push(JSON.parse(JSON.stringify(lastFitParams)));
+
+    for(let i=0;i<8;i++){
+      let q = JSON.parse(JSON.stringify(lastFitParams));
+      q.Rp  *= rand(0.92, 1.08);
+      q.L   *= rand(0.96, 1.04);
+      q.C   *= rand(0.92, 1.08);
+      q.Rdc *= rand(0.96, 1.04);
+      q.Re  *= rand(0.85, 1.15);
+      q.Le  *= rand(0.85, 1.15);
+
+      q.Rp  = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
+      q.L   = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
+      q.C   = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
+      q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
+      q.Re  = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
+      q.Le  = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
+
+      starts.push(q);
+    }
+  }
+
+  starts.push({ Rp:150000, L:1.7, C:100e-12, Rdc:4300, Re:70000, Le:3.5 });
+  starts.push({ Rp:120000, L:1.5, C:80e-12,  Rdc:4000, Re:50000, Le:2.0 });
+  starts.push({ Rp:180000, L:2.0, C:120e-12, Rdc:5000, Re:100000, Le:5.0 });
+
+  while(starts.length < 28){
+    starts.push(randomParams());
+  }
+
+  return starts;
 }
 
 function errorOf(p,data){
@@ -449,18 +489,15 @@ function loadResponse(p){
     const w = 2*Math.PI*f;
     const m = model(p,f);
 
-    // Last als zusätzliche Shunt-Admittanz am Ausgang
     let Yload = complex(0,0);
 
     if(R > 0){
       Yload = add(Yload, complex(1/R, 0));
     }
-
     if(L > 0){
       const ZL = complex(0, w*L);
       Yload = add(Yload, inv(ZL));
     }
-
     if(C > 0){
       Yload = add(Yload, complex(0, w*C));
     }
@@ -476,7 +513,6 @@ function loadResponse(p){
     const Hload = div(ZoutLoaded, add(m.Zs, ZoutLoaded));
     out.push(20*Math.log10(absC(Hload)));
   }
-
   return out;
 }
 
@@ -521,7 +557,6 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
   function tx(v){
     return px0 + (Math.log10(v)-lx0)/(lx1-lx0)*pw;
   }
-
   function ty(v){
     if(logY){
       const ly0 = Math.log10(ymin);
@@ -532,19 +567,16 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
     }
   }
 
-  // Rahmen
   ctx.strokeStyle = '#445';
   ctx.lineWidth = 1;
   ctx.strokeRect(px0, py0, pw, ph);
 
-  // X-grid (1,2,5 pro Dekade)
   ctx.strokeStyle = '#222';
   ctx.fillStyle = '#a8b2c2';
   ctx.font = '10px Arial';
 
   const d0 = Math.floor(Math.log10(xMin));
   const d1 = Math.ceil(Math.log10(xMax));
-
   for(let d=d0; d<=d1; d++){
     for(const m of [1,2,5]){
       const val = m*Math.pow(10,d);
@@ -554,15 +586,13 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
       ctx.moveTo(xx, py0);
       ctx.lineTo(xx, py0+ph);
       ctx.stroke();
-
       if(m === 1){
-        let label = val >= 1000 ? (val/1000)+'k' : String(Math.round(val));
+        const label = val >= 1000 ? (val/1000)+'k' : String(Math.round(val));
         ctx.fillText(label, xx-8, h-10);
       }
     }
   }
 
-  // Y-grid
   for(let i=0;i<=5;i++){
     const yy = py0 + i/5*ph;
     ctx.beginPath();
@@ -583,12 +613,10 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
     ctx.fillText(label, 4, yy+3);
   }
 
-  // Titel
   ctx.fillStyle = '#ddd';
   ctx.font = '11px Arial';
   ctx.fillText(title, px0+4, 12);
 
-  // y unit
   ctx.save();
   ctx.translate(12, py0 + ph/2);
   ctx.rotate(-Math.PI/2);
@@ -596,7 +624,6 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
   ctx.fillText(yUnit, 0, 0);
   ctx.restore();
 
-  // Sollkurve
   if(yTarget){
     ctx.strokeStyle = '#ff6b6b';
     ctx.lineWidth = 1.5;
@@ -608,17 +635,12 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
       if(logY && v <= 0) continue;
       const xx = tx(x[i]);
       const yy = ty(v);
-      if(!started){
-        ctx.moveTo(xx,yy);
-        started = true;
-      } else {
-        ctx.lineTo(xx,yy);
-      }
+      if(!started){ ctx.moveTo(xx,yy); started = true; }
+      else ctx.lineTo(xx,yy);
     }
     ctx.stroke();
   }
 
-  // Fitkurve
   ctx.strokeStyle = '#59d7ff';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -629,12 +651,8 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
     if(logY && v <= 0) continue;
     const xx = tx(x[i]);
     const yy = ty(v);
-    if(!started){
-      ctx.moveTo(xx,yy);
-      started = true;
-    } else {
-      ctx.lineTo(xx,yy);
-    }
+    if(!started){ ctx.moveTo(xx,yy); started = true; }
+    else ctx.lineTo(xx,yy);
   }
   ctx.stroke();
 }
@@ -647,7 +665,6 @@ function targetArray(arr){
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
   const sim = simulateCurves(bestParams);
-
   drawPlot(el('plot1'), freq, sim.Hm, targetArray(loadedData.hmag), 'H Betrag', 'dB', false);
   drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
   drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Betrag', 'Ohm', true);
@@ -678,18 +695,23 @@ async function runFit(){
 
     let best = null;
     let bestE = 1e99;
-
-    const starts = 28;
-    const iters = 70;
+    const startPopulation = makeStartPopulation();
+    const starts = startPopulation.length;
+    const iters = 110;
 
     setStatus('Fit läuft ...');
 
     for(let s=0;s<starts;s++){
-      let p = randomParams();
+      let p = JSON.parse(JSON.stringify(startPopulation[s]));
       let e = errorOf(p, loadedData);
 
+      if(e < bestE){
+        best = JSON.parse(JSON.stringify(p));
+        bestE = e;
+      }
+
       for(let i=0;i<iters;i++){
-        const q = mutateParams(p);
+        const q = mutateParams(p, i < iters*0.7);
         const eq = errorOf(q, loadedData);
         if(eq < e){
           p = q;
@@ -706,6 +728,7 @@ async function runFit(){
     }
 
     bestParams = best;
+    lastFitParams = JSON.parse(JSON.stringify(best));
 
     el('paramsOut').textContent = JSON.stringify({
       Rp: +bestParams.Rp.toFixed(3),
@@ -735,8 +758,16 @@ function calcLoad(){
   setStatus('Belasteter H-Betrag berechnet.');
 }
 
+function resetFitMemory(){
+  bestParams = null;
+  lastFitParams = null;
+  el('paramsOut').textContent = 'Fit-Start zurückgesetzt.';
+  setStatus('Fit-Start zurückgesetzt.');
+}
+
 el('fitBtn').addEventListener('click', runFit);
 el('loadBtn').addEventListener('click', calcLoad);
+el('resetBtn').addEventListener('click', resetFitMemory);
 </script>
 </body>
 </html>
