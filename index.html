@@ -235,6 +235,17 @@
       </div>
 
       <div class="panel">
+        <h2>Plot-Grenzen H Betrag</h2>
+        <div class="row">
+          <div class="field"><label>H min [dB]</label><input id="hMin" type="number" value="-30" step="0.1"></div>
+          <div class="field"><label>H max [dB]</label><input id="hMax" type="number" value="5" step="0.1"></div>
+        </div>
+        <div class="small">
+          Gilt für beide H-Betrag-Plots: <b>H Betrag</b> und <b>H Betrag mit Last</b>.
+        </div>
+      </div>
+
+      <div class="panel">
         <div class="btns">
           <button id="fitBtn" class="primary">Fit berechnen</button>
           <button id="loadBtn">Frequenzgang mit Last berechnen</button>
@@ -516,7 +527,7 @@ function loadResponse(p){
   return out;
 }
 
-function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
+function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, yMaxFixed=null){
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   const h = canvas.height;
@@ -545,6 +556,13 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY){
   if(!Number.isFinite(ymin) || !Number.isFinite(ymax)){
     ymin = 0; ymax = 1;
   }
+  if(ymin === ymax){
+    ymin -= 1; ymax += 1;
+  }
+
+  if(yMinFixed !== null && Number.isFinite(yMinFixed)) ymin = yMinFixed;
+  if(yMaxFixed !== null && Number.isFinite(yMaxFixed)) ymax = yMaxFixed;
+
   if(ymin === ymax){
     ymin -= 1; ymax += 1;
   }
@@ -662,10 +680,22 @@ function targetArray(arr){
   return freq.map(f => interp(f, arr));
 }
 
+function getHPlotLimits(){
+  const hMin = Number(el('hMin').value);
+  const hMax = Number(el('hMax').value);
+
+  return {
+    min: Number.isFinite(hMin) ? hMin : null,
+    max: Number.isFinite(hMax) ? hMax : null
+  };
+}
+
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
   const sim = simulateCurves(bestParams);
-  drawPlot(el('plot1'), freq, sim.Hm, targetArray(loadedData.hmag), 'H Betrag', 'dB', false);
+  const lim = getHPlotLimits();
+
+  drawPlot(el('plot1'), freq, sim.Hm, targetArray(loadedData.hmag), 'H Betrag', 'dB', false, lim.min, lim.max);
   drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
   drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Betrag', 'Ohm', true);
   drawPlot(el('plot4'), freq, sim.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
@@ -754,7 +784,8 @@ function calcLoad(){
     return;
   }
   const y = loadResponse(bestParams);
-  drawPlot(el('plot5'), freq, y, null, 'H Betrag mit Last', 'dB', false);
+  const lim = getHPlotLimits();
+  drawPlot(el('plot5'), freq, y, null, 'H Betrag mit Last', 'dB', false, lim.min, lim.max);
   setStatus('Belasteter H-Betrag berechnet.');
 }
 
