@@ -100,7 +100,7 @@
     padding:10px;
     color:var(--green);
     font-size:12px;
-    min-height:130px;
+    min-height:150px;
   }
   .plots{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .plotbox{
@@ -148,7 +148,8 @@
   <div class="sub">
     Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven. Die Zusatzlast wird nie mitgefittet,
     sondern nur nachträglich auf das Modell angewendet. Neu: <b>Form-Fokus</b> mischt zwischen physikalischer
-    Gewichtung und lokaler Peak/Dip-Formtreue.
+    Gewichtung und lokaler Peak/Dip-Formtreue. Zusätzlich wird nach dem Fit ein reiner Anzeige-Offset für den
+    H-Betrag berechnet, damit die Form unverändert bleibt und nur das Niveau nachgezogen wird.
   </div>
 
   <div class="layout">
@@ -277,6 +278,7 @@ let lastFitParams = null;
 let freq = [];
 let loadedData = null;
 let fitMeta = null;
+let bestObjective = null;
 
 function el(id){ return document.getElementById(id); }
 function setStatus(msg){ el('status').textContent = msg; }
@@ -299,6 +301,8 @@ function absC(z){ return Math.hypot(z.r,z.i); }
 function angC(z){ return Math.atan2(z.i,z.r) * 180 / Math.PI; }
 function rand(a,b){ return a + Math.random()*(b-a); }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function mean(arr){ return arr.reduce((a,b)=>a+b,0) / (arr.length || 1); }
+function sq(x){ return x*x; }
 
 async function loadFile(inputEl){
   if(!inputEl.files || !inputEl.files[0]) return null;
@@ -364,8 +368,7 @@ function slopeLog(xArr, yArr){
   return out;
 }
 
-function mean(arr){ return arr.reduce((a,b)=>a+b,0) / (arr.length || 1); }
-function sq(x){ return x*x; }
+function targetArray(arr){ return arr ? freq.map(f => interp(f, arr)) : null; }
 
 function model(p,f){
   const w = 2*Math.PI*f;
@@ -379,6 +382,158 @@ function model(p,f){
   const H = div(Zsh, add(Zs, Zsh));
   const Zin = inv(add(inv(Zs), inv(Zsh)));
   return { Hm:20*Math.log10(absC(H)), Hp:angC(H), Zm:absC(Zin), Zp:angC(Zin), Zsh, Zs };
+}
+
+function simulateCurves(p){
+  const Hm=[], Hp=[], Zm=[], Zp=[];
+  for(const f of freq){
+    const m = model(p,f);
+    Hm.push(m.Hm); Hp.push(m.Hp); Zm.push(m.Zm); Zp.push(m.Zp);
+  }
+  return {Hm,Hp,Zm,Zp};
+}
+
+function buildFitMeta(data){
+  const hmagT = targetArray(data.hmag);
+  const hphT = targetArray(data.hph);
+  const zmagT = targetArray(data.zmag);
+  const zphT = targetArray(data.zph);
+
+  let lowHz = Number(el('lowAnchorHz').value);
+  if(!Number.isFinite(lowHz) || lowHz <= 0) lowHz = 120;
+
+  let lowIdx = freq.map(f => f <= lowHz);
+  if(lowIdx.filter(Boolean).length < 8){
+    lowHz = 200;
+    lowIdx = freq.map(f => f <= lowHz);
+  }
+
+  const regionIdx = freq.map(f => f >= 800 && f <= 18000);
+
+  let fDip = 4000;
+  let fPeak = 12000;
+  if(hmagT){
+    const regPairs = [];
+    for(let i=0;i<freq.length;i++) if(regionIdx[i]) regPairs.push([freq[i], hmagT[i]]);
+    if(regPairs.length > 10){
+      let peakIdxLocal = 0;
+      for(let i=1;i<regPairs.length;i++) if(regPairs[i][1] > regPairs[peakIdxLocal][1]) peakIdxLocal = i;
+      let dipIdxLocal = 0;
+      const end = Math.max(peakIdxLocal, 5);
+      for(let i=1;i<end;i++) if(regPairs[i][1] < regPairs[dipIdxLocal][1]) dipIdxLocal = i;
+      fDip = regPairs[dipIdxLocal][0];
+      fPeak = regPairs[peakIdxLocal][0];
+    }
+  }
+
+  const wLocal = freq.map(f => {
+    let w = 1;
+    const x = Math.log10(f);
+    w += 6*Math.exp(-sq(x-Math.log10(fDip))/(2*0.10*0.10));
+    w += 8*Math.exp(-sq(x-Math.log10(fPeak))/(2*0.10*0.10));
+    if(f >= fDip/1.5 && f <= fPeak*1.2) w += 2.5;
+    return w;
+  });
+
+  const hSlope = hmagT ? slopeLog(freq, hmagT) : null;
+  return {hmagT,hphT,zmagT,zphT,lowIdx,regionIdx,lowHz,fDip,fPeak,wLocal,hSlope};
+}
+
+function errorPhysical(sim, meta){
+  let e = 0, n = 0;
+  const wH = freq.map(f => {
+    const x = Math.log10(f), c = Math.log10(7000);
+    return 1 + (el('weightH').checked ? 3*Math.exp(-sq(x-c)/(2*0.42*0.42)) : 0);
+  });
+
+  if(meta.hmagT) for(let i=0;i<freq.length;i++){
+    const d = (sim.Hm[i] - meta.hmagT[i]) * wH[i];
+    e += d*d; n++;
+  }
+  if(meta.hphT) for(let i=0;i<freq.length;i++){
+    const d = (sim.Hp[i] - meta.hphT[i]) / 5;
+    e += d*d; n++;
+  }
+  if(meta.zmagT) for(let i=0;i<freq.length;i++){
+    const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.08;
+    e += d*d; n++;
+  }
+  if(meta.zphT) for(let i=0;i<freq.length;i++){
+    const d = (sim.Zp[i] - meta.zphT[i]) / 3;
+    e += d*d; n++;
+  }
+  return n ? e/n : 1e99;
+}
+
+function errorForm(sim, meta){
+  let e = 0, n = 0;
+
+  if(meta.hmagT){
+    const lowMeas = [], lowFit = [];
+    for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){ lowMeas.push(meta.hmagT[i]); lowFit.push(sim.Hm[i]); }
+    const refMeas = mean(lowMeas);
+    const refFit = mean(lowFit);
+    const relMeas = meta.hmagT.map(v => v-refMeas);
+    const relFit = sim.Hm.map(v => v-refFit);
+
+    for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){
+      const d = (sim.Hm[i] - meta.hmagT[i]) / 0.22;
+      e += d*d; n++;
+    }
+
+    for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+      const d = ((relFit[i] - relMeas[i]) * meta.wLocal[i]) / 0.42;
+      e += d*d; n++;
+    }
+
+    if(meta.hSlope){
+      const simSlope = slopeLog(freq, sim.Hm);
+      for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+        const d = ((simSlope[i] - meta.hSlope[i]) * meta.wLocal[i]) / 2.6;
+        e += d*d; n++;
+      }
+    }
+  }
+
+  if(meta.hphT) for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+    const d = ((sim.Hp[i] - meta.hphT[i]) * (0.7 + 0.3*meta.wLocal[i])) / 4.8;
+    e += d*d; n++;
+  }
+
+  if(meta.zmagT) for(let i=0;i<freq.length;i++){
+    const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.16;
+    e += d*d; n++;
+  }
+  if(meta.zphT) for(let i=0;i<freq.length;i++){
+    const d = (sim.Zp[i] - meta.zphT[i]) / 5.0;
+    e += d*d; n++;
+  }
+
+  return n ? e/n : 1e99;
+}
+
+function errorOf(p, meta){
+  const alpha = Number(el('formFocus').value) / 100;
+  const sim = simulateCurves(p);
+  const ePhys = errorPhysical(sim, meta);
+  const eForm = errorForm(sim, meta);
+  return (1-alpha)*ePhys + alpha*eForm;
+}
+
+function computeHDisplayOffset(sim, meta){
+  if(!meta || !meta.hmagT) return 0;
+  const alpha = Number(el('formFocus').value) / 100;
+  const idx = [];
+  for(let i=0;i<freq.length;i++){
+    if(alpha >= 0.85){
+      if(meta.regionIdx[i]) idx.push(i);
+    } else {
+      if(freq[i] <= Math.max(meta.lowHz * 8, 2000)) idx.push(i);
+    }
+  }
+  if(!idx.length) return 0;
+  const diffs = idx.map(i => meta.hmagT[i] - sim.Hm[i]).filter(Number.isFinite);
+  return diffs.length ? mean(diffs) : 0;
 }
 
 function randomParams(){
@@ -412,227 +567,21 @@ function makeStartPopulation(){
   if(lastFitParams){
     starts.push(JSON.parse(JSON.stringify(lastFitParams)));
     for(let i=0;i<8;i++){
-      let q = JSON.parse(JSON.stringify(lastFitParams));
-      q.Rp  *= rand(0.92, 1.08);
-      q.L   *= rand(0.96, 1.04);
-      q.C   *= rand(0.92, 1.08);
-      q.Rdc *= rand(0.96, 1.04);
-      q.Re  *= rand(0.85, 1.15);
-      q.Le  *= rand(0.85, 1.15);
-      q.Rp  = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
-      q.L   = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
-      q.C   = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
-      q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
-      q.Re  = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
-      q.Le  = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
-      starts.push(q);
+      const q = JSON.parse(JSON.stringify(lastFitParams));
+      q.Rp*=rand(0.92,1.08); q.L*=rand(0.96,1.04); q.C*=rand(0.92,1.08); q.Rdc*=rand(0.96,1.04); q.Re*=rand(0.85,1.15); q.Le*=rand(0.85,1.15);
+      starts.push(mutateParams(q, true));
     }
   }
-  starts.push({ Rp:150000, L:1.7, C:100e-12, Rdc:4300, Re:70000, Le:3.5 });
-  starts.push({ Rp:120000, L:1.5, C:80e-12,  Rdc:4000, Re:50000, Le:2.0 });
-  starts.push({ Rp:180000, L:2.0, C:120e-12, Rdc:5000, Re:100000, Le:5.0 });
+  starts.push({Rp:150000,L:1.7,C:100e-12,Rdc:4300,Re:70000,Le:3.5});
+  starts.push({Rp:120000,L:1.5,C:80e-12,Rdc:4000,Re:50000,Le:2.0});
+  starts.push({Rp:180000,L:2.0,C:120e-12,Rdc:5000,Re:100000,Le:5.0});
   while(starts.length < 36) starts.push(randomParams());
   return starts;
 }
 
-function buildFitMeta(data){
-  const hmagT = targetArray(data.hmag);
-  const hphT = targetArray(data.hph);
-  const zmagT = targetArray(data.zmag);
-  const zphT = targetArray(data.zph);
-
-  let lowHz = Number(el('lowAnchorHz').value);
-  if(!Number.isFinite(lowHz) || lowHz <= 0) lowHz = 120;
-
-  const lowIdx = freq.map(f => f <= lowHz);
-  const lowCount = lowIdx.filter(Boolean).length;
-  if(lowCount < 8){
-    lowHz = 200;
-    for(let i=0;i<freq.length;i++) lowIdx[i] = freq[i] <= lowHz;
-  }
-
-  const regionIdx = freq.map(f => f >= 800 && f <= 18000);
-
-  // Dip + Peak nur aus H-Betrag, falls vorhanden
-  let fDip = 4000;
-  let fPeak = 12000;
-  if(hmagT){
-    const regPairs = [];
-    for(let i=0;i<freq.length;i++) if(regionIdx[i]) regPairs.push([freq[i], hmagT[i], i]);
-    if(regPairs.length > 10){
-      let peakIdxLocal = 0;
-      for(let i=1;i<regPairs.length;i++) if(regPairs[i][1] > regPairs[peakIdxLocal][1]) peakIdxLocal = i;
-      let dipIdxLocal = 0;
-      const end = Math.max(peakIdxLocal, 5);
-      for(let i=1;i<end;i++) if(regPairs[i][1] < regPairs[dipIdxLocal][1]) dipIdxLocal = i;
-      fDip = regPairs[dipIdxLocal][0];
-      fPeak = regPairs[peakIdxLocal][0];
-    }
-  }
-
-  const lfAll = freq.map(f => Math.log10(f));
-  const wLocal = freq.map((f, i) => {
-    const x = lfAll[i];
-    let w = 1.0;
-    w += 6.0 * Math.exp(-sq(x - Math.log10(fDip)) / (2*0.10*0.10));
-    w += 8.0 * Math.exp(-sq(x - Math.log10(fPeak)) / (2*0.10*0.10));
-    if(f >= fDip/1.5 && f <= fPeak*1.2) w += 2.5;
-    return w;
-  });
-
-  const hSlope = hmagT ? slopeLog(freq, hmagT) : null;
-
-  return { hmagT, hphT, zmagT, zphT, lowIdx, regionIdx, lowHz, fDip, fPeak, wLocal, hSlope };
-}
-
-function errorPhysical(sim, meta){
-  let e = 0, n = 0;
-  const lf = freq.map(f => Math.log10(f));
-  const c = Math.log10(7000);
-  const wH = lf.map(x => 1 + (el('weightH').checked ? 3*Math.exp(-sq(x-c)/(2*0.42*0.42)) : 0));
-
-  if(meta.hmagT){
-    for(let i=0;i<freq.length;i++){
-      const d = (sim.Hm[i] - meta.hmagT[i]) * wH[i];
-      e += d*d; n++;
-    }
-  }
-  if(meta.hphT){
-    for(let i=0;i<freq.length;i++){
-      const d = (sim.Hp[i] - meta.hphT[i]) / 5;
-      e += d*d; n++;
-    }
-  }
-  if(meta.zmagT){
-    for(let i=0;i<freq.length;i++){
-      const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.08;
-      e += d*d; n++;
-    }
-  }
-  if(meta.zphT){
-    for(let i=0;i<freq.length;i++){
-      const d = (sim.Zp[i] - meta.zphT[i]) / 3;
-      e += d*d; n++;
-    }
-  }
-  return n ? e/n : 1e99;
-}
-
-function errorForm(sim, meta){
-  let e = 0, n = 0;
-
-  if(meta.hmagT){
-    const lowMeas = [], lowFit = [];
-    for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){ lowMeas.push(meta.hmagT[i]); lowFit.push(sim.Hm[i]); }
-    const refMeas = mean(lowMeas);
-    const refFit = mean(lowFit);
-    const relMeas = meta.hmagT.map(v => v - refMeas);
-    const relFit = sim.Hm.map(v => v - refFit);
-
-    for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){
-      const d = (sim.Hm[i] - meta.hmagT[i]) / 0.22;
-      e += d*d; n++;
-    }
-
-    for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
-      const d = ((relFit[i] - relMeas[i]) * meta.wLocal[i]) / 0.42;
-      e += d*d; n++;
-    }
-
-    if(meta.hSlope){
-      const simSlope = slopeLog(freq, sim.Hm);
-      for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
-        const d = ((simSlope[i] - meta.hSlope[i]) * meta.wLocal[i]) / 2.6;
-        e += d*d; n++;
-      }
-    }
-  }
-
-  if(meta.hphT){
-    for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
-      const d = ((sim.Hp[i] - meta.hphT[i]) * (0.7 + 0.3*meta.wLocal[i])) / 4.8;
-      e += d*d; n++;
-    }
-  }
-
-  if(meta.zmagT){
-    for(let i=0;i<freq.length;i++){
-      const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.16;
-      e += d*d; n++;
-    }
-  }
-  if(meta.zphT){
-    for(let i=0;i<freq.length;i++){
-      const d = (sim.Zp[i] - meta.zphT[i]) / 5.0;
-      e += d*d; n++;
-    }
-  }
-
-  return n ? e/n : 1e99;
-}
-
-function errorOf(p, data, meta){
-  const alpha = Number(el('formFocus').value) / 100;
-  const sim = simulateCurves(p);
-  const ePhys = errorPhysical(sim, meta);
-  const eForm = errorForm(sim, meta);
-  return (1-alpha)*ePhys + alpha*eForm;
-}
-
-function simulateCurves(p){
-  const Hm=[], Hp=[], Zm=[], Zp=[];
-  for(const f of freq){
-    const m = model(p,f);
-    Hm.push(m.Hm); Hp.push(m.Hp); Zm.push(m.Zm); Zp.push(m.Zp);
-  }
-  return {Hm,Hp,Zm,Zp};
-}
-
-function computeHDisplayOffset(sim, meta){
-  // rein darstellerischer dB-Offset für H-Betrag nach dem Fit
-  // damit die Form unangetastet bleibt und nur das Niveau nachgezogen wird
-  if(!meta || !meta.hmagT) return 0;
-
-  const alpha = Number(el('formFocus').value) / 100;
-
-  // Bei starkem Form-Fokus lieber im relevanten Bereich abgleichen,
-  // sonst im Low-/Mittelbereich globaler.
-  const idx = [];
-  for(let i=0;i<freq.length;i++){
-    if(alpha >= 0.85){
-      if(meta.regionIdx[i]) idx.push(i);
-    } else {
-      if(freq[i] <= Math.max(meta.lowHz * 8, 2000)) idx.push(i);
-    }
-  }
-  if(!idx.length) return 0;
-
-  const diffs = idx.map(i => meta.hmagT[i] - sim.Hm[i]).filter(Number.isFinite);
-  if(!diffs.length) return 0;
-  return mean(diffs);
-}
-
-function loadResponse(p){
-  const R = Number(el('loadR').value);
-  const L = Number(el('loadL').value);
-  const C = Number(el('loadC').value) * 1e-12;
-  const out = [];
-  for(const f of freq){
-    const w = 2*Math.PI*f;
-    const m = model(p,f);
-    let Yload = complex(0,0);
-    if(R > 0) Yload = add(Yload, complex(1/R, 0));
-    if(L > 0) Yload = add(Yload, inv(complex(0, w*L)));
-    if(C > 0) Yload = add(Yload, complex(0, w*C));
-    let ZoutLoaded = m.Zsh;
-    if(Math.abs(Yload.r) > 0 || Math.abs(Yload.i) > 0){
-      const Yout = inv(m.Zsh);
-      ZoutLoaded = inv(add(Yout, Yload));
-    }
-    const Hload = div(ZoutLoaded, add(m.Zs, ZoutLoaded));
-    out.push(20*Math.log10(absC(Hload)));
-  }
-  return out;
+function getHPlotLimits(){
+  const hMin = Number(el('hMin').value), hMax = Number(el('hMax').value);
+  return { min: Number.isFinite(hMin) ? hMin : null, max: Number.isFinite(hMax) ? hMax : null };
 }
 
 function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, yMaxFixed=null){
@@ -671,43 +620,14 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
     return py0 + ph - (v-ymin)/(ymax-ymin)*ph;
   }
 
-  ctx.strokeStyle = '#445'; ctx.lineWidth = 1; ctx.strokeRect(px0, py0, pw, ph);
-  ctx.strokeStyle = '#222'; ctx.fillStyle = '#a8b2c2'; ctx.font = '10px Arial';
-
-  const d0 = Math.floor(Math.log10(xMin)), d1 = Math.ceil(Math.log10(xMax));
-  for(let d=d0; d<=d1; d++){
-    for(const m of [1,2,3,4,5,6,7,8,9]){
-      const val = m*Math.pow(10,d);
-      if(val < xMin || val > xMax) continue;
-      const xx = tx(val);
-      ctx.beginPath(); ctx.moveTo(xx, py0); ctx.lineTo(xx, py0+ph); ctx.stroke();
-      if(m===1){
-        const label = val >= 1000 ? (val/1000)+'k' : String(Math.round(val));
-        ctx.fillText(label, xx-8, h-10);
-      }
-    }
-  }
-
-  for(let i=0;i<=5;i++){
-    const yy = py0 + i/5*ph;
-    ctx.beginPath(); ctx.moveTo(px0, yy); ctx.lineTo(px0+pw, yy); ctx.stroke();
-    let label;
-    if(logY){
-      const ly0 = Math.log10(ymin), ly1 = Math.log10(ymax);
-      const val = Math.pow(10, ly1 - i/5*(ly1-ly0));
-      label = val >= 1000 ? (val/1000).toFixed(1)+'k' : val.toFixed(0);
-    } else {
-      const val = ymax - i/5*(ymax-ymin);
-      label = val.toFixed(1);
-    }
-    ctx.fillText(label, 4, yy+3);
-  }
-
-  ctx.fillStyle = '#ddd'; ctx.font = '11px Arial'; ctx.fillText(title, px0+4, 12);
-  ctx.save(); ctx.translate(12, py0 + ph/2); ctx.rotate(-Math.PI/2); ctx.fillStyle = '#a8b2c2'; ctx.fillText(yUnit, 0, 0); ctx.restore();
+  ctx.strokeStyle = '#445';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(px0, py0, pw, ph);
 
   if(yTarget){
-    ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
     let started = false;
     for(let i=0;i<x.length;i++){
       const v = yTarget[i];
@@ -718,7 +638,9 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
     ctx.stroke();
   }
 
-  ctx.strokeStyle = '#59d7ff'; ctx.lineWidth = 1.5; ctx.beginPath();
+  ctx.strokeStyle = '#59d7ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
   let started = false;
   for(let i=0;i<x.length;i++){
     const v = yFit[i];
@@ -738,15 +660,89 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
   }
 }
 
-function targetArray(arr){ return arr ? freq.map(f => interp(f, arr)) : null; }
-function getHPlotLimits(){
-  const hMin = Number(el('hMin').value), hMax = Number(el('hMax').value);
-  return { min: Number.isFinite(hMin) ? hMin : null, max: Number.isFinite(hMax) ? hMax : null };
-}
-
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
   const sim = simulateCurves(bestParams);
+  const hOffset = computeHDisplayOffset(sim, fitMeta);
+  const lim = getHPlotLimits();
+  drawPlot(el('plot1'), freq, sim.Hm.map(v=>v+hOffset), targetArray(loadedData.hmag), 'H Betrag', 'dB', false, lim.min, lim.max);
+  drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
+  drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Betrag', 'Ohm', true);
+  drawPlot(el('plot4'), freq, sim.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
+}
+
+function loadResponse(p){
+  const R = Number(el('loadR').value);
+  const L = Number(el('loadL').value);
+  const C = Number(el('loadC').value) * 1e-12;
+  const out = [];
+  for(const f of freq){
+    const w = 2*Math.PI*f;
+    const m = model(p,f);
+    let Yload = complex(0,0);
+    if(R > 0) Yload = add(Yload, complex(1/R,0));
+    if(L > 0) Yload = add(Yload, inv(complex(0,w*L)));
+    if(C > 0) Yload = add(Yload, complex(0,w*C));
+    let ZoutLoaded = m.Zsh;
+    if(Math.abs(Yload.r)>0 || Math.abs(Yload.i)>0) ZoutLoaded = inv(add(inv(m.Zsh), Yload));
+    const Hload = div(ZoutLoaded, add(m.Zs, ZoutLoaded));
+    out.push(20*Math.log10(absC(Hload)));
+  }
+  return out;
+}
+
+async function runFit(){
+  try{
+    setStatus('Dateien werden gelesen ...');
+    loadedData = {
+      hmag: await loadFile(el('hmag')),
+      hph: await loadFile(el('hph')),
+      zmag: await loadFile(el('zmag')),
+      zph: await loadFile(el('zph'))
+    };
+
+    if(!loadedData.hmag && !loadedData.hph && !loadedData.zmag && !loadedData.zph){
+      setStatus('Keine Datei geladen.');
+      return;
+    }
+
+    freq = buildFreqGrid(loadedData);
+    if(!freq.length){
+      setStatus('Kein gemeinsamer Frequenzbereich gefunden.');
+      return;
+    }
+
+    fitMeta = buildFitMeta(loadedData);
+
+    let best = null;
+    let bestE = 1e99;
+    const starts = makeStartPopulation();
+    const iters = 180;
+
+    setStatus('Fit läuft ...');
+
+    for(let s=0; s<starts.length; s++){
+      let p = JSON.parse(JSON.stringify(starts[s]));
+      let e = errorOf(p, fitMeta);
+
+      if(e < bestE){ best = JSON.parse(JSON.stringify(p)); bestE = e; }
+
+      for(let i=0;i<iters;i++){
+        const q = mutateParams(p, i < iters*0.7);
+        const eq = errorOf(q, fitMeta);
+        if(eq < e){ p = q; e = eq; }
+        if(eq < bestE){ best = JSON.parse(JSON.stringify(q)); bestE = eq; }
+      }
+
+      setStatus(`Fit läuft ... Start ${s+1}/${starts.length}`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    bestParams = best;
+    bestObjective = bestE;
+    lastFitParams = JSON.parse(JSON.stringify(best));
+
+    const sim = simulateCurves(bestParams);
     const hOffset = computeHDisplayOffset(sim, fitMeta);
     const alpha = Number(el('formFocus').value)/100;
     const ePhys = errorPhysical(sim, fitMeta);
@@ -759,10 +755,10 @@ function redrawAll(){
       Rdc: +bestParams.Rdc.toFixed(3),
       Re: +bestParams.Re.toFixed(3),
       Le_H: +bestParams.Le.toFixed(6),
-      objective: +bestE.toFixed(6),
+      objective: +bestObjective.toFixed(6),
       objective_physical: +ePhys.toFixed(6),
       objective_form: +eForm.toFixed(6),
-      h_display_offset_db: +computeHDisplayOffset(sim, fitMeta).toFixed(6),
+      h_display_offset_db: +hOffset.toFixed(6),
       form_focus: +alpha.toFixed(2),
       low_anchor_hz: +fitMeta.lowHz.toFixed(1),
       dip_focus_hz: +fitMeta.fDip.toFixed(1),
@@ -780,16 +776,15 @@ function redrawAll(){
 function calcLoad(){
   if(!bestParams){ setStatus('Erst fitten.'); return; }
   const y = loadResponse(bestParams);
-  const sim = simulateCurves(bestParams);
-  const hOffset = computeHDisplayOffset(sim, fitMeta);
-  const yDisplay = y.map(v => v + hOffset);
+  const hOffset = computeHDisplayOffset(simulateCurves(bestParams), fitMeta);
   const lim = getHPlotLimits();
-  drawPlot(el('plot5'), freq, yDisplay, null, 'H Betrag mit Last', 'dB', false, lim.min, lim.max);
+  drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Betrag mit Last', 'dB', false, lim.min, lim.max);
   setStatus('Belasteter H-Betrag berechnet.');
 }
 
 function resetFitMemory(){
   bestParams = null;
+  bestObjective = null;
   lastFitParams = null;
   fitMeta = null;
   el('paramsOut').textContent = 'Fit-Start zurückgesetzt.';
