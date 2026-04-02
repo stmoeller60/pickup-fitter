@@ -375,8 +375,9 @@ function model(p,f){
   const Zs = complex(p.Rdc, w*p.L);
   let Ysh = complex(1/p.Rp, w*p.C);
   if(el('useRL').checked){
-    const Ze = complex(p.Re, w*p.Le);
-    Ysh = add(Ysh, inv(Ze));
+    const Ce = 1.0; // Farad
+const Ze = add(complex(p.Re, w*p.Le), complex(0, -1/(w*Ce)));
+Ysh = add(Ysh, inv(Ze));
   }
   const Zsh = inv(Ysh);
   const H = div(Zsh, add(Zs, Zsh));
