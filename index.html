@@ -373,12 +373,23 @@ function targetArray(arr){ return arr ? freq.map(f => interp(f, arr)) : null; }
 function model(p,f){
   const w = 2*Math.PI*f;
   const Zs = complex(p.Rdc, w*p.L);
-  let Ysh = complex(1/p.Rp, w*p.C);
-  if(el('useRL').checked){
-    const Ce = 1.0; // Farad
-const Ze = add(complex(p.Re, w*p.Le), complex(0, -1/(w*Ce)));
-Ysh = add(Ysh, inv(Ze));
-  }
+  const Cp_block = 1.0; // F
+const Ce_block = 1.0; // F
+
+// Haupt-C bleibt direkt nach Masse
+let Ysh = complex(0, w * p.C);
+
+// Rp-Zweig jetzt mit Serien-Cp
+const Zcp = complex(0, -1 / (w * Cp_block));
+const Zrp_branch = add(complex(p.Rp, 0), Zcp);
+Ysh = add(Ysh, inv(Zrp_branch));
+
+// Re-Le-Zweig jetzt mit Serien-Ce
+if(el('useRL').checked){
+  const Zce = complex(0, -1 / (w * Ce_block));
+  const Ze_branch = add(add(complex(p.Re, 0), complex(0, w * p.Le)), Zce);
+  Ysh = add(Ysh, inv(Ze_branch));
+}
   const Zsh = inv(Ysh);
   const H = div(Zsh, add(Zs, Zsh));
   const Zin = inv(add(inv(Zs), inv(Zsh)));
