@@ -747,59 +747,7 @@ function getHPlotLimits(){
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
   const sim = simulateCurves(bestParams);
-  const lim = getHPlotLimits();
-  const hOffset = computeHDisplayOffset(sim, fitMeta);
-  const HmDisplay = sim.Hm.map(v => v + hOffset);
-  drawPlot(el('plot1'), freq, HmDisplay, targetArray(loadedData.hmag), 'H Betrag', 'dB', false, lim.min, lim.max);
-  drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
-  drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Betrag', 'Ohm', true);
-  drawPlot(el('plot4'), freq, sim.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
-}
-
-async function runFit(){
-  try{
-    setStatus('Dateien werden gelesen ...');
-    loadedData = {
-      hmag: await loadFile(el('hmag')),
-      hph:  await loadFile(el('hph')),
-      zmag: await loadFile(el('zmag')),
-      zph:  await loadFile(el('zph'))
-    };
-    if(!loadedData.hmag && !loadedData.hph && !loadedData.zmag && !loadedData.zph){
-      setStatus('Keine Datei geladen.');
-      return;
-    }
-    freq = buildFreqGrid(loadedData);
-    if(!freq.length){
-      setStatus('Kein gemeinsamer Frequenzbereich gefunden.');
-      return;
-    }
-
-    fitMeta = buildFitMeta(loadedData);
-
-    let best = null, bestE = 1e99;
-    const starts = makeStartPopulation();
-    const iters = 180;
-    setStatus('Fit läuft ...');
-
-    for(let s=0; s<starts.length; s++){
-      let p = JSON.parse(JSON.stringify(starts[s]));
-      let e = errorOf(p, loadedData, fitMeta);
-      if(e < bestE){ best = JSON.parse(JSON.stringify(p)); bestE = e; }
-      for(let i=0;i<iters;i++){
-        const q = mutateParams(p, i < iters*0.7);
-        const eq = errorOf(q, loadedData, fitMeta);
-        if(eq < e){ p = q; e = eq; }
-        if(eq < bestE){ best = JSON.parse(JSON.stringify(q)); bestE = eq; }
-      }
-      setStatus(`Fit läuft ... Start ${s+1}/${starts.length}`);
-      await new Promise(r => setTimeout(r, 0));
-    }
-
-    bestParams = best;
-    lastFitParams = JSON.parse(JSON.stringify(best));
-
-    const sim = simulateCurves(bestParams);
+    const hOffset = computeHDisplayOffset(sim, fitMeta);
     const alpha = Number(el('formFocus').value)/100;
     const ePhys = errorPhysical(sim, fitMeta);
     const eForm = errorForm(sim, fitMeta);
@@ -814,7 +762,7 @@ async function runFit(){
       objective: +bestE.toFixed(6),
       objective_physical: +ePhys.toFixed(6),
       objective_form: +eForm.toFixed(6),
-      h_display_offset_db: +hOffset.toFixed(6),
+      h_display_offset_db: +computeHDisplayOffset(sim, fitMeta).toFixed(6),
       form_focus: +alpha.toFixed(2),
       low_anchor_hz: +fitMeta.lowHz.toFixed(1),
       dip_focus_hz: +fitMeta.fDip.toFixed(1),
