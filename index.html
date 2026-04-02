@@ -149,7 +149,7 @@
     Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven. Die Zusatzlast wird nie mitgefittet,
     sondern nur nachträglich auf das Modell angewendet. Neu: <b>Form-Fokus</b> mischt zwischen physikalischer
     Gewichtung und lokaler Peak/Dip-Formtreue. Zusätzlich wird nach dem Fit ein reiner Anzeige-Offset für den
-    H-Betrag berechnet, damit die Form unverändert bleibt und nur das Niveau nachgezogen wird.
+    H-Betrag berechnet, damit die Form unverändert bleibt und nur das Niveau nachgezogen wird.!
   </div>
 
   <div class="layout">
@@ -632,9 +632,79 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
     return py0 + ph - (v-ymin)/(ymax-ymin)*ph;
   }
 
-  ctx.strokeStyle = '#445';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(px0, py0, pw, ph);
+  // ===== Achsen / Grid / Labels =====
+ctx.strokeStyle = '#222';
+ctx.fillStyle = '#a8b2c2';
+ctx.font = '10px Arial';
+
+// X-Achse (logarithmisch)
+const d0 = Math.floor(Math.log10(xMin));
+const d1 = Math.ceil(Math.log10(xMax));
+
+for(let d=d0; d<=d1; d++){
+  for(const m of [1,2,3,4,5,6,7,8,9]){
+    const val = m * Math.pow(10,d);
+    if(val < xMin || val > xMax) continue;
+
+    const xx = tx(val);
+
+    // vertikale Grid-Linie
+    ctx.beginPath();
+    ctx.moveTo(xx, py0);
+    ctx.lineTo(xx, py0 + ph);
+    ctx.stroke();
+
+    // Beschriftung nur bei 1*10^n
+    if(m === 1){
+      let label;
+      if(val >= 1000){
+        label = (val / 1000) + 'k';
+      } else {
+        label = String(Math.round(val));
+      }
+      ctx.fillText(label, xx - 8, py0 + ph + 14);
+    }
+  }
+}
+
+// Y-Achse
+for(let i=0;i<=5;i++){
+  const yy = py0 + i/5 * ph;
+
+  // horizontale Grid-Linie
+  ctx.beginPath();
+  ctx.moveTo(px0, yy);
+  ctx.lineTo(px0 + pw, yy);
+  ctx.stroke();
+
+  let val;
+  if(logY){
+    const ly0 = Math.log10(ymin);
+    const ly1 = Math.log10(ymax);
+    val = Math.pow(10, ly1 - i/5*(ly1-ly0));
+  } else {
+    val = ymax - i/5*(ymax-ymin);
+  }
+
+  const label = logY
+    ? (val >= 1000 ? (val/1000).toFixed(1) + 'k' : val.toFixed(0))
+    : val.toFixed(1);
+
+  ctx.fillText(label, 4, yy + 3);
+}
+
+// Titel
+ctx.fillStyle = '#ddd';
+ctx.font = '11px Arial';
+ctx.fillText(title, px0 + 4, 12);
+
+// Y-Achsen-Label
+ctx.save();
+ctx.translate(12, py0 + ph/2);
+ctx.rotate(-Math.PI/2);
+ctx.fillStyle = '#a8b2c2';
+ctx.fillText(yUnit, 0, 0);
+ctx.restore();
 
   if(yTarget){
     ctx.strokeStyle = '#ff6b6b';
