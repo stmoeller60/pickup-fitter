@@ -588,6 +588,30 @@ function simulateCurves(p){
   return {Hm,Hp,Zm,Zp};
 }
 
+function computeHDisplayOffset(sim, meta){
+  // rein darstellerischer dB-Offset für H-Betrag nach dem Fit
+  // damit die Form unangetastet bleibt und nur das Niveau nachgezogen wird
+  if(!meta || !meta.hmagT) return 0;
+
+  const alpha = Number(el('formFocus').value) / 100;
+
+  // Bei starkem Form-Fokus lieber im relevanten Bereich abgleichen,
+  // sonst im Low-/Mittelbereich globaler.
+  const idx = [];
+  for(let i=0;i<freq.length;i++){
+    if(alpha >= 0.85){
+      if(meta.regionIdx[i]) idx.push(i);
+    } else {
+      if(freq[i] <= Math.max(meta.lowHz * 8, 2000)) idx.push(i);
+    }
+  }
+  if(!idx.length) return 0;
+
+  const diffs = idx.map(i => meta.hmagT[i] - sim.Hm[i]).filter(Number.isFinite);
+  if(!diffs.length) return 0;
+  return mean(diffs);
+}
+
 function loadResponse(p){
   const R = Number(el('loadR').value);
   const L = Number(el('loadL').value);
@@ -724,7 +748,9 @@ function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
   const sim = simulateCurves(bestParams);
   const lim = getHPlotLimits();
-  drawPlot(el('plot1'), freq, sim.Hm, targetArray(loadedData.hmag), 'H Betrag', 'dB', false, lim.min, lim.max);
+  const hOffset = computeHDisplayOffset(sim, fitMeta);
+  const HmDisplay = sim.Hm.map(v => v + hOffset);
+  drawPlot(el('plot1'), freq, HmDisplay, targetArray(loadedData.hmag), 'H Betrag', 'dB', false, lim.min, lim.max);
   drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
   drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Betrag', 'Ohm', true);
   drawPlot(el('plot4'), freq, sim.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
@@ -788,6 +814,7 @@ async function runFit(){
       objective: +bestE.toFixed(6),
       objective_physical: +ePhys.toFixed(6),
       objective_form: +eForm.toFixed(6),
+      h_display_offset_db: +hOffset.toFixed(6),
       form_focus: +alpha.toFixed(2),
       low_anchor_hz: +fitMeta.lowHz.toFixed(1),
       dip_focus_hz: +fitMeta.fDip.toFixed(1),
@@ -805,8 +832,11 @@ async function runFit(){
 function calcLoad(){
   if(!bestParams){ setStatus('Erst fitten.'); return; }
   const y = loadResponse(bestParams);
+  const sim = simulateCurves(bestParams);
+  const hOffset = computeHDisplayOffset(sim, fitMeta);
+  const yDisplay = y.map(v => v + hOffset);
   const lim = getHPlotLimits();
-  drawPlot(el('plot5'), freq, y, null, 'H Betrag mit Last', 'dB', false, lim.min, lim.max);
+  drawPlot(el('plot5'), freq, yDisplay, null, 'H Betrag mit Last', 'dB', false, lim.min, lim.max);
   setStatus('Belasteter H-Betrag berechnet.');
 }
 
