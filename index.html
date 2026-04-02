@@ -16,6 +16,7 @@
     --green:#81e291;
     --btn:#19324b;
     --btn2:#10161f;
+    --amber:#ffcc66;
   }
   *{ box-sizing:border-box; }
   body{
@@ -25,14 +26,11 @@
     color:var(--text);
   }
   .wrap{
-    max-width:1200px;
+    max-width:1220px;
     margin:0 auto;
     padding:14px;
   }
-  h1{
-    margin:0 0 10px;
-    font-size:28px;
-  }
+  h1{ margin:0 0 10px; font-size:28px; }
   .sub{
     color:var(--muted);
     margin-bottom:14px;
@@ -41,7 +39,7 @@
   }
   .layout{
     display:grid;
-    grid-template-columns:360px 1fr;
+    grid-template-columns:380px 1fr;
     gap:14px;
   }
   .panel{
@@ -51,10 +49,7 @@
     padding:12px;
     margin-bottom:12px;
   }
-  .panel h2{
-    margin:0 0 10px;
-    font-size:18px;
-  }
+  .panel h2{ margin:0 0 10px; font-size:18px; }
   .field{ margin-bottom:8px; }
   label{
     display:block;
@@ -63,7 +58,8 @@
     font-size:12px;
   }
   input[type="file"],
-  input[type="number"]{
+  input[type="number"],
+  input[type="range"]{
     width:100%;
     padding:10px;
     border-radius:10px;
@@ -71,11 +67,8 @@
     background:#0f141c;
     color:var(--text);
   }
-  .row{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:8px;
-  }
+  input[type="range"]{ padding:0; }
+  .row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .checkline{
     display:flex;
     align-items:center;
@@ -84,11 +77,7 @@
     color:var(--text);
     font-size:14px;
   }
-  .btns{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-  }
+  .btns{ display:flex; gap:8px; flex-wrap:wrap; }
   button{
     border:1px solid var(--line);
     background:var(--btn2);
@@ -98,17 +87,9 @@
     font-weight:700;
     cursor:pointer;
   }
-  button.primary{
-    background:var(--btn);
-  }
-  button:hover{
-    filter:brightness(1.08);
-  }
-  .status{
-    min-height:20px;
-    color:var(--muted);
-    font-size:13px;
-  }
+  button.primary{ background:var(--btn); }
+  button:hover{ filter:brightness(1.08); }
+  .status{ min-height:20px; color:var(--muted); font-size:13px; }
   pre{
     white-space:pre-wrap;
     word-break:break-word;
@@ -119,42 +100,45 @@
     padding:10px;
     color:var(--green);
     font-size:12px;
-    min-height:110px;
+    min-height:130px;
   }
-  .plots{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:12px;
-  }
+  .plots{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .plotbox{
     background:var(--panel);
     border:1px solid var(--line);
     border-radius:14px;
     padding:10px;
   }
-  .plotbox h3{
-    margin:0 0 8px;
-    font-size:15px;
-    color:var(--muted);
-    font-weight:700;
-  }
+  .plotbox h3{ margin:0 0 8px; font-size:15px; color:var(--muted); font-weight:700; }
   canvas{
     display:block;
     width:100%;
-    height:190px;
+    height:200px;
     background:#0b0f15;
     border-radius:10px;
     border:1px solid #212835;
   }
-  .small{
-    font-size:12px;
-    color:var(--muted);
-    line-height:1.45;
+  .small{ font-size:12px; color:var(--muted); line-height:1.45; }
+  .meter{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:10px;
+    align-items:center;
   }
-  @media (max-width:900px){
+  .focusBadge{
+    display:inline-block;
+    padding:3px 8px;
+    border-radius:999px;
+    background:#10161f;
+    border:1px solid var(--line);
+    color:var(--amber);
+    font-size:12px;
+    font-weight:700;
+  }
+  @media (max-width:920px){
     .layout{ grid-template-columns:1fr; }
     .plots{ grid-template-columns:1fr; }
-    canvas{ height:170px; }
+    canvas{ height:180px; }
   }
 </style>
 </head>
@@ -162,9 +146,9 @@
 <div class="wrap">
   <h1>Pickup Model Fitter</h1>
   <div class="sub">
-    Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven. Der Fit bleibt beim erneuten Start deutlich stabiler,
-    weil der letzte gute Parametersatz als Startpunkt wiederverwendet wird. Die Zusatzlast wird nie mitgefittet, sondern nur nachträglich
-    auf das Modell angewendet.
+    Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven. Die Zusatzlast wird nie mitgefittet,
+    sondern nur nachträglich auf das Modell angewendet. Neu: <b>Form-Fokus</b> mischt zwischen physikalischer
+    Gewichtung und lokaler Peak/Dip-Formtreue.
   </div>
 
   <div class="layout">
@@ -176,8 +160,7 @@
         <div class="field"><label>Z Betrag (f, Ohm)</label><input id="zmag" type="file" accept=".txt,.dat,.csv"></div>
         <div class="field"><label>Z Phase (f, Grad)</label><input id="zph" type="file" accept=".txt,.dat,.csv"></div>
         <div class="small">
-          Format je Datei: zwei Spalten <b>Frequenz Wert</b><br>
-          Es reichen auch nur 1, 2 oder 3 Dateien.
+          Format je Datei: zwei Spalten <b>Frequenz Wert</b>. Es reichen auch 1, 2 oder 3 Dateien.
         </div>
       </div>
 
@@ -190,6 +173,25 @@
           <b>Generator → (Rdc + jωL) → Ausgang</b><br>
           Am Ausgang nach Masse:<br>
           <b>Rp ∥ C ∥ (Re + jωLe)</b>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Fit-Strategie</h2>
+        <div class="field">
+          <label>Form-Fokus (0 = Physik / 1 = Peak-Dip-Form)</label>
+          <div class="meter">
+            <input id="formFocus" type="range" min="0" max="100" step="1" value="45">
+            <span id="formFocusLabel" class="focusBadge">0.45</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Low-Frequency-Anker bis [Hz]</label>
+          <input id="lowAnchorHz" type="number" value="120" step="1">
+        </div>
+        <div class="small">
+          Erst wird der Pegel im Tieftonbereich stabilisiert, danach mischt der Form-Fokus zwischen klassischer
+          App-Fehlerfunktion und lokaler Formtreue um Senke/Peak.
         </div>
       </div>
 
@@ -229,8 +231,7 @@
         </div>
         <div class="field"><label>C [pF]</label><input id="loadC" type="number" value="0"></div>
         <div class="small">
-          Diese Last wird als zusätzliche Shunt-Last am Ausgang verwendet und erzeugt den 5. Plot:
-          <b>H Betrag mit Last</b>.
+          Diese Last wird als zusätzliche Shunt-Last am Ausgang verwendet und erzeugt den 5. Plot: <b>H Betrag mit Last</b>.
         </div>
       </div>
 
@@ -239,9 +240,6 @@
         <div class="row">
           <div class="field"><label>H min [dB]</label><input id="hMin" type="number" value="-30" step="0.1"></div>
           <div class="field"><label>H max [dB]</label><input id="hMax" type="number" value="5" step="0.1"></div>
-        </div>
-        <div class="small">
-          Gilt für beide H-Betrag-Plots: <b>H Betrag</b> und <b>H Betrag mit Last</b>.
         </div>
       </div>
 
@@ -262,11 +260,11 @@
     </div>
 
     <div class="plots">
-      <div class="plotbox"><h3>H Betrag</h3><canvas id="plot1" width="520" height="190"></canvas></div>
-      <div class="plotbox"><h3>H Phase</h3><canvas id="plot2" width="520" height="190"></canvas></div>
-      <div class="plotbox"><h3>Z Betrag</h3><canvas id="plot3" width="520" height="190"></canvas></div>
-      <div class="plotbox"><h3>Z Phase</h3><canvas id="plot4" width="520" height="190"></canvas></div>
-      <div class="plotbox"><h3>H Betrag mit Last</h3><canvas id="plot5" width="520" height="190"></canvas></div>
+      <div class="plotbox"><h3>H Betrag</h3><canvas id="plot1" width="520" height="200"></canvas></div>
+      <div class="plotbox"><h3>H Phase</h3><canvas id="plot2" width="520" height="200"></canvas></div>
+      <div class="plotbox"><h3>Z Betrag</h3><canvas id="plot3" width="520" height="200"></canvas></div>
+      <div class="plotbox"><h3>Z Phase</h3><canvas id="plot4" width="520" height="200"></canvas></div>
+      <div class="plotbox"><h3>H Betrag mit Last</h3><canvas id="plot5" width="520" height="200"></canvas></div>
     </div>
   </div>
 </div>
@@ -278,9 +276,13 @@ let bestParams = null;
 let lastFitParams = null;
 let freq = [];
 let loadedData = null;
+let fitMeta = null;
 
 function el(id){ return document.getElementById(id); }
 function setStatus(msg){ el('status').textContent = msg; }
+function updateFocusLabel(){ el('formFocusLabel').textContent = (Number(el('formFocus').value)/100).toFixed(2); }
+updateFocusLabel();
+el('formFocus').addEventListener('input', updateFocusLabel);
 
 function complex(r,i){ return {r:r, i:i}; }
 function add(a,b){ return {r:a.r+b.r, i:a.i+b.i}; }
@@ -291,10 +293,7 @@ function inv(z){
 }
 function div(a,b){
   const d = b.r*b.r + b.i*b.i;
-  return {
-    r:(a.r*b.r + a.i*b.i)/d,
-    i:(a.i*b.r - a.r*b.i)/d
-  };
+  return {r:(a.r*b.r + a.i*b.i)/d, i:(a.i*b.r - a.r*b.i)/d};
 }
 function absC(z){ return Math.hypot(z.r,z.i); }
 function angC(z){ return Math.atan2(z.i,z.r) * 180 / Math.PI; }
@@ -334,8 +333,7 @@ function interp(x, arr){
 function buildFreqGrid(data){
   const sets = [data.hmag, data.hph, data.zmag, data.zph].filter(Boolean);
   if(!sets.length) return [];
-  let fmin = -Infinity;
-  let fmax = Infinity;
+  let fmin = -Infinity, fmax = Infinity;
   for(const s of sets){
     fmin = Math.max(fmin, s[0][0]);
     fmax = Math.min(fmax, s[s.length-1][0]);
@@ -349,29 +347,38 @@ function buildFreqGrid(data){
   return out;
 }
 
+function slopeLog(xArr, yArr){
+  const out = new Array(yArr.length).fill(0);
+  for(let i=0;i<yArr.length;i++){
+    if(i===0){
+      const dx = Math.log10(xArr[i+1]) - Math.log10(xArr[i]);
+      out[i] = (yArr[i+1]-yArr[i]) / dx;
+    }else if(i===yArr.length-1){
+      const dx = Math.log10(xArr[i]) - Math.log10(xArr[i-1]);
+      out[i] = (yArr[i]-yArr[i-1]) / dx;
+    }else{
+      const dx = Math.log10(xArr[i+1]) - Math.log10(xArr[i-1]);
+      out[i] = (yArr[i+1]-yArr[i-1]) / dx;
+    }
+  }
+  return out;
+}
+
+function mean(arr){ return arr.reduce((a,b)=>a+b,0) / (arr.length || 1); }
+function sq(x){ return x*x; }
+
 function model(p,f){
   const w = 2*Math.PI*f;
   const Zs = complex(p.Rdc, w*p.L);
-
   let Ysh = complex(1/p.Rp, w*p.C);
-
   if(el('useRL').checked){
     const Ze = complex(p.Re, w*p.Le);
     Ysh = add(Ysh, inv(Ze));
   }
-
   const Zsh = inv(Ysh);
   const H = div(Zsh, add(Zs, Zsh));
   const Zin = inv(add(inv(Zs), inv(Zsh)));
-
-  return {
-    Hm: 20*Math.log10(absC(H)),
-    Hp: angC(H),
-    Zm: absC(Zin),
-    Zp: angC(Zin),
-    Zsh: Zsh,
-    Zs: Zs
-  };
+  return { Hm:20*Math.log10(absC(H)), Hp:angC(H), Zm:absC(Zin), Zp:angC(Zin), Zsh, Zs };
 }
 
 function randomParams(){
@@ -391,7 +398,6 @@ function mutateParams(p, fine){
   const k = keys[Math.floor(Math.random()*keys.length)];
   const scale = fine ? rand(0.96, 1.04) : rand(0.82, 1.18);
   q[k] *= scale;
-
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
   q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
@@ -403,10 +409,8 @@ function mutateParams(p, fine){
 
 function makeStartPopulation(){
   const starts = [];
-
   if(lastFitParams){
     starts.push(JSON.parse(JSON.stringify(lastFitParams)));
-
     for(let i=0;i<8;i++){
       let q = JSON.parse(JSON.stringify(lastFitParams));
       q.Rp  *= rand(0.92, 1.08);
@@ -415,62 +419,151 @@ function makeStartPopulation(){
       q.Rdc *= rand(0.96, 1.04);
       q.Re  *= rand(0.85, 1.15);
       q.Le  *= rand(0.85, 1.15);
-
       q.Rp  = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
       q.L   = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
       q.C   = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
       q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
       q.Re  = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
       q.Le  = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
-
       starts.push(q);
     }
   }
-
   starts.push({ Rp:150000, L:1.7, C:100e-12, Rdc:4300, Re:70000, Le:3.5 });
   starts.push({ Rp:120000, L:1.5, C:80e-12,  Rdc:4000, Re:50000, Le:2.0 });
   starts.push({ Rp:180000, L:2.0, C:120e-12, Rdc:5000, Re:100000, Le:5.0 });
-
-  while(starts.length < 28){
-    starts.push(randomParams());
-  }
-
+  while(starts.length < 36) starts.push(randomParams());
   return starts;
 }
 
-function errorOf(p,data){
-  let e = 0;
-  let n = 0;
+function buildFitMeta(data){
+  const hmagT = targetArray(data.hmag);
+  const hphT = targetArray(data.hph);
+  const zmagT = targetArray(data.zmag);
+  const zphT = targetArray(data.zph);
 
-  for(const f of freq){
-    const m = model(p,f);
+  let lowHz = Number(el('lowAnchorHz').value);
+  if(!Number.isFinite(lowHz) || lowHz <= 0) lowHz = 120;
 
-    if(data.hmag){
-      let w = 1;
-      if(el('weightH').checked){
-        const lf = Math.log10(f);
-        const c = Math.log10(7000);
-        w = 1 + 3*Math.exp(-((lf-c)*(lf-c))/(2*0.42*0.42));
-      }
-      const d = (m.Hm - interp(f,data.hmag))*w;
+  const lowIdx = freq.map(f => f <= lowHz);
+  const lowCount = lowIdx.filter(Boolean).length;
+  if(lowCount < 8){
+    lowHz = 200;
+    for(let i=0;i<freq.length;i++) lowIdx[i] = freq[i] <= lowHz;
+  }
+
+  const regionIdx = freq.map(f => f >= 800 && f <= 18000);
+
+  // Dip + Peak nur aus H-Betrag, falls vorhanden
+  let fDip = 4000;
+  let fPeak = 12000;
+  if(hmagT){
+    const regPairs = [];
+    for(let i=0;i<freq.length;i++) if(regionIdx[i]) regPairs.push([freq[i], hmagT[i], i]);
+    if(regPairs.length > 10){
+      let peakIdxLocal = 0;
+      for(let i=1;i<regPairs.length;i++) if(regPairs[i][1] > regPairs[peakIdxLocal][1]) peakIdxLocal = i;
+      let dipIdxLocal = 0;
+      const end = Math.max(peakIdxLocal, 5);
+      for(let i=1;i<end;i++) if(regPairs[i][1] < regPairs[dipIdxLocal][1]) dipIdxLocal = i;
+      fDip = regPairs[dipIdxLocal][0];
+      fPeak = regPairs[peakIdxLocal][0];
+    }
+  }
+
+  const lfAll = freq.map(f => Math.log10(f));
+  const wLocal = freq.map((f, i) => {
+    const x = lfAll[i];
+    let w = 1.0;
+    w += 6.0 * Math.exp(-sq(x - Math.log10(fDip)) / (2*0.10*0.10));
+    w += 8.0 * Math.exp(-sq(x - Math.log10(fPeak)) / (2*0.10*0.10));
+    if(f >= fDip/1.5 && f <= fPeak*1.2) w += 2.5;
+    return w;
+  });
+
+  const hSlope = hmagT ? slopeLog(freq, hmagT) : null;
+
+  return { hmagT, hphT, zmagT, zphT, lowIdx, regionIdx, lowHz, fDip, fPeak, wLocal, hSlope };
+}
+
+function errorPhysical(sim, meta){
+  let e = 0, n = 0;
+  const lf = freq.map(f => Math.log10(f));
+  const c = Math.log10(7000);
+  const wH = lf.map(x => 1 + (el('weightH').checked ? 3*Math.exp(-sq(x-c)/(2*0.42*0.42)) : 0));
+
+  if(meta.hmagT){
+    for(let i=0;i<freq.length;i++){
+      const d = (sim.Hm[i] - meta.hmagT[i]) * wH[i];
+      e += d*d; n++;
+    }
+  }
+  if(meta.hphT){
+    for(let i=0;i<freq.length;i++){
+      const d = (sim.Hp[i] - meta.hphT[i]) / 5;
+      e += d*d; n++;
+    }
+  }
+  if(meta.zmagT){
+    for(let i=0;i<freq.length;i++){
+      const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.08;
+      e += d*d; n++;
+    }
+  }
+  if(meta.zphT){
+    for(let i=0;i<freq.length;i++){
+      const d = (sim.Zp[i] - meta.zphT[i]) / 3;
+      e += d*d; n++;
+    }
+  }
+  return n ? e/n : 1e99;
+}
+
+function errorForm(sim, meta){
+  let e = 0, n = 0;
+
+  if(meta.hmagT){
+    const lowMeas = [], lowFit = [];
+    for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){ lowMeas.push(meta.hmagT[i]); lowFit.push(sim.Hm[i]); }
+    const refMeas = mean(lowMeas);
+    const refFit = mean(lowFit);
+    const relMeas = meta.hmagT.map(v => v - refMeas);
+    const relFit = sim.Hm.map(v => v - refFit);
+
+    for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){
+      const d = (sim.Hm[i] - meta.hmagT[i]) / 0.22;
       e += d*d; n++;
     }
 
-    if(data.hph){
-      const d = (m.Hp - interp(f,data.hph))/5;
+    for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+      const d = ((relFit[i] - relMeas[i]) * meta.wLocal[i]) / 0.42;
       e += d*d; n++;
     }
 
-    if(data.zmag){
-      const tgt = interp(f,data.zmag);
-      if(tgt > 0){
-        const d = (Math.log(m.Zm) - Math.log(tgt))/0.08;
+    if(meta.hSlope){
+      const simSlope = slopeLog(freq, sim.Hm);
+      for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+        const d = ((simSlope[i] - meta.hSlope[i]) * meta.wLocal[i]) / 2.6;
         e += d*d; n++;
       }
     }
+  }
 
-    if(data.zph){
-      const d = (m.Zp - interp(f,data.zph))/3;
+  if(meta.hphT){
+    for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+      const d = ((sim.Hp[i] - meta.hphT[i]) * (0.7 + 0.3*meta.wLocal[i])) / 4.8;
+      e += d*d; n++;
+    }
+  }
+
+  if(meta.zmagT){
+    for(let i=0;i<freq.length;i++){
+      const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.16;
+      e += d*d; n++;
+    }
+  }
+  if(meta.zphT){
+    for(let i=0;i<freq.length;i++){
+      const d = (sim.Zp[i] - meta.zphT[i]) / 5.0;
       e += d*d; n++;
     }
   }
@@ -478,14 +571,19 @@ function errorOf(p,data){
   return n ? e/n : 1e99;
 }
 
+function errorOf(p, data, meta){
+  const alpha = Number(el('formFocus').value) / 100;
+  const sim = simulateCurves(p);
+  const ePhys = errorPhysical(sim, meta);
+  const eForm = errorForm(sim, meta);
+  return (1-alpha)*ePhys + alpha*eForm;
+}
+
 function simulateCurves(p){
   const Hm=[], Hp=[], Zm=[], Zp=[];
   for(const f of freq){
     const m = model(p,f);
-    Hm.push(m.Hm);
-    Hp.push(m.Hp);
-    Zm.push(m.Zm);
-    Zp.push(m.Zp);
+    Hm.push(m.Hm); Hp.push(m.Hp); Zm.push(m.Zm); Zp.push(m.Zp);
   }
   return {Hm,Hp,Zm,Zp};
 }
@@ -495,32 +593,18 @@ function loadResponse(p){
   const L = Number(el('loadL').value);
   const C = Number(el('loadC').value) * 1e-12;
   const out = [];
-
   for(const f of freq){
     const w = 2*Math.PI*f;
     const m = model(p,f);
-
     let Yload = complex(0,0);
-
-    if(R > 0){
-      Yload = add(Yload, complex(1/R, 0));
-    }
-    if(L > 0){
-      const ZL = complex(0, w*L);
-      Yload = add(Yload, inv(ZL));
-    }
-    if(C > 0){
-      Yload = add(Yload, complex(0, w*C));
-    }
-
+    if(R > 0) Yload = add(Yload, complex(1/R, 0));
+    if(L > 0) Yload = add(Yload, inv(complex(0, w*L)));
+    if(C > 0) Yload = add(Yload, complex(0, w*C));
     let ZoutLoaded = m.Zsh;
-
     if(Math.abs(Yload.r) > 0 || Math.abs(Yload.i) > 0){
       const Yout = inv(m.Zsh);
-      const Ytot = add(Yout, Yload);
-      ZoutLoaded = inv(Ytot);
+      ZoutLoaded = inv(add(Yout, Yload));
     }
-
     const Hload = div(ZoutLoaded, add(m.Zs, ZoutLoaded));
     out.push(20*Math.log10(absC(Hload)));
   }
@@ -529,82 +613,51 @@ function loadResponse(p){
 
 function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, yMaxFixed=null){
   const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-
+  const w = canvas.width, h = canvas.height;
   ctx.clearRect(0,0,w,h);
   ctx.fillStyle = '#0b0f15';
   ctx.fillRect(0,0,w,h);
 
   const pad = {l:50, r:10, t:18, b:28};
-  const px0 = pad.l, py0 = pad.t;
-  const pw = w-pad.l-pad.r, ph = h-pad.t-pad.b;
+  const px0 = pad.l, py0 = pad.t, pw = w-pad.l-pad.r, ph = h-pad.t-pad.b;
 
   let allY = yFit.slice();
   if(yTarget) allY = allY.concat(yTarget.filter(v => Number.isFinite(v)));
-
   let ymin, ymax;
   if(logY){
     const pos = allY.filter(v => Number.isFinite(v) && v > 0);
-    ymin = Math.min(...pos);
-    ymax = Math.max(...pos);
+    ymin = Math.min(...pos); ymax = Math.max(...pos);
   } else {
-    ymin = Math.min(...allY);
-    ymax = Math.max(...allY);
+    ymin = Math.min(...allY); ymax = Math.max(...allY);
   }
-
-  if(!Number.isFinite(ymin) || !Number.isFinite(ymax)){
-    ymin = 0; ymax = 1;
-  }
-  if(ymin === ymax){
-    ymin -= 1; ymax += 1;
-  }
-
+  if(!Number.isFinite(ymin) || !Number.isFinite(ymax)){ ymin = 0; ymax = 1; }
+  if(ymin === ymax){ ymin -= 1; ymax += 1; }
   if(yMinFixed !== null && Number.isFinite(yMinFixed)) ymin = yMinFixed;
   if(yMaxFixed !== null && Number.isFinite(yMaxFixed)) ymax = yMaxFixed;
+  if(ymin === ymax){ ymin -= 1; ymax += 1; }
 
-  if(ymin === ymax){
-    ymin -= 1; ymax += 1;
-  }
-
-  const xMin = x[0];
-  const xMax = x[x.length-1];
-  const lx0 = Math.log10(xMin);
-  const lx1 = Math.log10(xMax);
-
-  function tx(v){
-    return px0 + (Math.log10(v)-lx0)/(lx1-lx0)*pw;
-  }
+  const xMin = x[0], xMax = x[x.length-1];
+  const lx0 = Math.log10(xMin), lx1 = Math.log10(xMax);
+  function tx(v){ return px0 + (Math.log10(v)-lx0)/(lx1-lx0)*pw; }
   function ty(v){
     if(logY){
-      const ly0 = Math.log10(ymin);
-      const ly1 = Math.log10(ymax);
+      const ly0 = Math.log10(ymin), ly1 = Math.log10(ymax);
       return py0 + ph - (Math.log10(v)-ly0)/(ly1-ly0)*ph;
-    } else {
-      return py0 + ph - (v-ymin)/(ymax-ymin)*ph;
     }
+    return py0 + ph - (v-ymin)/(ymax-ymin)*ph;
   }
 
-  ctx.strokeStyle = '#445';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(px0, py0, pw, ph);
+  ctx.strokeStyle = '#445'; ctx.lineWidth = 1; ctx.strokeRect(px0, py0, pw, ph);
+  ctx.strokeStyle = '#222'; ctx.fillStyle = '#a8b2c2'; ctx.font = '10px Arial';
 
-  ctx.strokeStyle = '#222';
-  ctx.fillStyle = '#a8b2c2';
-  ctx.font = '10px Arial';
-
-  const d0 = Math.floor(Math.log10(xMin));
-  const d1 = Math.ceil(Math.log10(xMax));
+  const d0 = Math.floor(Math.log10(xMin)), d1 = Math.ceil(Math.log10(xMax));
   for(let d=d0; d<=d1; d++){
     for(const m of [1,2,3,4,5,6,7,8,9]){
       const val = m*Math.pow(10,d);
       if(val < xMin || val > xMax) continue;
       const xx = tx(val);
-      ctx.beginPath();
-      ctx.moveTo(xx, py0);
-      ctx.lineTo(xx, py0+ph);
-      ctx.stroke();
-      if(m === 1){
+      ctx.beginPath(); ctx.moveTo(xx, py0); ctx.lineTo(xx, py0+ph); ctx.stroke();
+      if(m===1){
         const label = val >= 1000 ? (val/1000)+'k' : String(Math.round(val));
         ctx.fillText(label, xx-8, h-10);
       }
@@ -613,15 +666,10 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
 
   for(let i=0;i<=5;i++){
     const yy = py0 + i/5*ph;
-    ctx.beginPath();
-    ctx.moveTo(px0, yy);
-    ctx.lineTo(px0+pw, yy);
-    ctx.stroke();
-
+    ctx.beginPath(); ctx.moveTo(px0, yy); ctx.lineTo(px0+pw, yy); ctx.stroke();
     let label;
     if(logY){
-      const ly0 = Math.log10(ymin);
-      const ly1 = Math.log10(ymax);
+      const ly0 = Math.log10(ymin), ly1 = Math.log10(ymax);
       const val = Math.pow(10, ly1 - i/5*(ly1-ly0));
       label = val >= 1000 ? (val/1000).toFixed(1)+'k' : val.toFixed(0);
     } else {
@@ -631,70 +679,51 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
     ctx.fillText(label, 4, yy+3);
   }
 
-  ctx.fillStyle = '#ddd';
-  ctx.font = '11px Arial';
-  ctx.fillText(title, px0+4, 12);
-
-  ctx.save();
-  ctx.translate(12, py0 + ph/2);
-  ctx.rotate(-Math.PI/2);
-  ctx.fillStyle = '#a8b2c2';
-  ctx.fillText(yUnit, 0, 0);
-  ctx.restore();
+  ctx.fillStyle = '#ddd'; ctx.font = '11px Arial'; ctx.fillText(title, px0+4, 12);
+  ctx.save(); ctx.translate(12, py0 + ph/2); ctx.rotate(-Math.PI/2); ctx.fillStyle = '#a8b2c2'; ctx.fillText(yUnit, 0, 0); ctx.restore();
 
   if(yTarget){
-    ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
+    ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 1.5; ctx.beginPath();
     let started = false;
     for(let i=0;i<x.length;i++){
       const v = yTarget[i];
-      if(!Number.isFinite(v)) continue;
-      if(logY && v <= 0) continue;
-      const xx = tx(x[i]);
-      const yy = ty(v);
-      if(!started){ ctx.moveTo(xx,yy); started = true; }
-      else ctx.lineTo(xx,yy);
+      if(!Number.isFinite(v) || (logY && v <= 0)) continue;
+      const xx = tx(x[i]), yy = ty(v);
+      if(!started){ ctx.moveTo(xx,yy); started = true; } else ctx.lineTo(xx,yy);
     }
     ctx.stroke();
   }
 
-  ctx.strokeStyle = '#59d7ff';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
+  ctx.strokeStyle = '#59d7ff'; ctx.lineWidth = 1.5; ctx.beginPath();
   let started = false;
   for(let i=0;i<x.length;i++){
     const v = yFit[i];
-    if(!Number.isFinite(v)) continue;
-    if(logY && v <= 0) continue;
-    const xx = tx(x[i]);
-    const yy = ty(v);
-    if(!started){ ctx.moveTo(xx,yy); started = true; }
-    else ctx.lineTo(xx,yy);
+    if(!Number.isFinite(v) || (logY && v <= 0)) continue;
+    const xx = tx(x[i]), yy = ty(v);
+    if(!started){ ctx.moveTo(xx,yy); started = true; } else ctx.lineTo(xx,yy);
   }
   ctx.stroke();
+
+  if(fitMeta && title === 'H Betrag'){
+    const xDip = tx(fitMeta.fDip), xPeak = tx(fitMeta.fPeak);
+    ctx.strokeStyle = 'rgba(255,204,102,0.65)';
+    ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(xDip, py0); ctx.lineTo(xDip, py0+ph); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xPeak, py0); ctx.lineTo(xPeak, py0+ph); ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 
-function targetArray(arr){
-  if(!arr) return null;
-  return freq.map(f => interp(f, arr));
-}
-
+function targetArray(arr){ return arr ? freq.map(f => interp(f, arr)) : null; }
 function getHPlotLimits(){
-  const hMin = Number(el('hMin').value);
-  const hMax = Number(el('hMax').value);
-
-  return {
-    min: Number.isFinite(hMin) ? hMin : null,
-    max: Number.isFinite(hMax) ? hMax : null
-  };
+  const hMin = Number(el('hMin').value), hMax = Number(el('hMax').value);
+  return { min: Number.isFinite(hMin) ? hMin : null, max: Number.isFinite(hMax) ? hMax : null };
 }
 
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
   const sim = simulateCurves(bestParams);
   const lim = getHPlotLimits();
-
   drawPlot(el('plot1'), freq, sim.Hm, targetArray(loadedData.hmag), 'H Betrag', 'dB', false, lim.min, lim.max);
   drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
   drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Betrag', 'Ohm', true);
@@ -704,61 +733,50 @@ function redrawAll(){
 async function runFit(){
   try{
     setStatus('Dateien werden gelesen ...');
-
     loadedData = {
       hmag: await loadFile(el('hmag')),
       hph:  await loadFile(el('hph')),
       zmag: await loadFile(el('zmag')),
       zph:  await loadFile(el('zph'))
     };
-
     if(!loadedData.hmag && !loadedData.hph && !loadedData.zmag && !loadedData.zph){
       setStatus('Keine Datei geladen.');
       return;
     }
-
     freq = buildFreqGrid(loadedData);
     if(!freq.length){
       setStatus('Kein gemeinsamer Frequenzbereich gefunden.');
       return;
     }
 
-    let best = null;
-    let bestE = 1e99;
-    const startPopulation = makeStartPopulation();
-    const starts = startPopulation.length;
-    const iters = 110;
+    fitMeta = buildFitMeta(loadedData);
 
+    let best = null, bestE = 1e99;
+    const starts = makeStartPopulation();
+    const iters = 180;
     setStatus('Fit läuft ...');
 
-    for(let s=0;s<starts;s++){
-      let p = JSON.parse(JSON.stringify(startPopulation[s]));
-      let e = errorOf(p, loadedData);
-
-      if(e < bestE){
-        best = JSON.parse(JSON.stringify(p));
-        bestE = e;
-      }
-
+    for(let s=0; s<starts.length; s++){
+      let p = JSON.parse(JSON.stringify(starts[s]));
+      let e = errorOf(p, loadedData, fitMeta);
+      if(e < bestE){ best = JSON.parse(JSON.stringify(p)); bestE = e; }
       for(let i=0;i<iters;i++){
         const q = mutateParams(p, i < iters*0.7);
-        const eq = errorOf(q, loadedData);
-        if(eq < e){
-          p = q;
-          e = eq;
-        }
-        if(eq < bestE){
-          best = JSON.parse(JSON.stringify(q));
-          bestE = eq;
-        }
+        const eq = errorOf(q, loadedData, fitMeta);
+        if(eq < e){ p = q; e = eq; }
+        if(eq < bestE){ best = JSON.parse(JSON.stringify(q)); bestE = eq; }
       }
-
-      setStatus(`Fit läuft ... Start ${s+1}/${starts}`);
+      setStatus(`Fit läuft ... Start ${s+1}/${starts.length}`);
       await new Promise(r => setTimeout(r, 0));
     }
 
     bestParams = best;
     lastFitParams = JSON.parse(JSON.stringify(best));
+
+    const sim = simulateCurves(bestParams);
+    const alpha = Number(el('formFocus').value)/100;
+    const ePhys = errorPhysical(sim, fitMeta);
+    const eForm = errorForm(sim, fitMeta);
 
     el('paramsOut').textContent = JSON.stringify({
       Rp: +bestParams.Rp.toFixed(3),
@@ -767,7 +785,13 @@ async function runFit(){
       Rdc: +bestParams.Rdc.toFixed(3),
       Re: +bestParams.Re.toFixed(3),
       Le_H: +bestParams.Le.toFixed(6),
-      error: +bestE.toFixed(6)
+      objective: +bestE.toFixed(6),
+      objective_physical: +ePhys.toFixed(6),
+      objective_form: +eForm.toFixed(6),
+      form_focus: +alpha.toFixed(2),
+      low_anchor_hz: +fitMeta.lowHz.toFixed(1),
+      dip_focus_hz: +fitMeta.fDip.toFixed(1),
+      peak_focus_hz: +fitMeta.fPeak.toFixed(1)
     }, null, 2);
 
     redrawAll();
@@ -779,10 +803,7 @@ async function runFit(){
 }
 
 function calcLoad(){
-  if(!bestParams){
-    setStatus('Erst fitten.');
-    return;
-  }
+  if(!bestParams){ setStatus('Erst fitten.'); return; }
   const y = loadResponse(bestParams);
   const lim = getHPlotLimits();
   drawPlot(el('plot5'), freq, y, null, 'H Betrag mit Last', 'dB', false, lim.min, lim.max);
@@ -792,6 +813,7 @@ function calcLoad(){
 function resetFitMemory(){
   bestParams = null;
   lastFitParams = null;
+  fitMeta = null;
   el('paramsOut').textContent = 'Fit-Start zurückgesetzt.';
   setStatus('Fit-Start zurückgesetzt.');
 }
