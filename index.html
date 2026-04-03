@@ -149,7 +149,7 @@
     Lädt 1 bis 4 TXT-Dateien. Gefittet wird nur auf die vorhandenen Kurven. Die Zusatzlast wird nie mitgefittet,
     sondern nur nachträglich auf das Modell angewendet. Neu: <b>Form-Fokus</b> mischt zwischen physikalischer
     Gewichtung und lokaler Peak/Dip-Formtreue. Zusätzlich wird nach dem Fit ein reiner Anzeige-Offset für den
-    H-Betrag berechnet, damit die Form unverändert bleibt und nur das Niveau nachgezogen wird.!
+    H-Betrag berechnet, damit die Form unverändert bleibt und nur das Niveau nachgezogen wird.
   </div>
 
   <div class="layout">
@@ -227,10 +227,10 @@
       <div class="panel">
         <h2>Zusatzlast für H</h2>
         <div class="row">
-          <div class="field"><label>R [Ω]</label><input id="loadR" type="number" value="1000000"></div>
+          <div class="field"><label>R [Ω]</label><input id="loadR" type="number" value="200000"></div>
           <div class="field"><label>L [H]</label><input id="loadL" type="number" value="0" step="0.001"></div>
         </div>
-        <div class="field"><label>C [pF]</label><input id="loadC" type="number" value="0"></div>
+        <div class="field"><label>C [pF]</label><input id="loadC" type="number" value="300"></div>
         <div class="small">
           Diese Last wird als zusätzliche Shunt-Last am Ausgang verwendet und erzeugt den 5. Plot: <b>H Betrag mit Last</b>.
         </div>
