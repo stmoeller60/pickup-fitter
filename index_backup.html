@@ -102,7 +102,7 @@
     font-size:12px;
     min-height:150px;
   }
-  .plots{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.plots{ display:grid; grid-template-columns:1fr 1fr; gap:0px; }
   .plotbox{
     background:var(--panel);
     border:1px solid var(--line);
@@ -284,6 +284,25 @@ function el(id){ return document.getElementById(id); }
 function setStatus(msg){ el('status').textContent = msg; }
 function updateFocusLabel(){ el('formFocusLabel').textContent = (Number(el('formFocus').value)/100).toFixed(2); }
 updateFocusLabel();
+  // localStorage bei Seitenladestart laden
+window.addEventListener('load', () => {
+  const saved = localStorage.getItem('fitData');
+  if(saved) {
+    try {
+      const data = JSON.parse(saved);
+      bestParams = data.bestParams;
+      lastFitParams = data.lastFitParams;
+      freq = data.freq;
+      loadedData = data.loadedData;
+      fitMeta = data.fitMeta;
+      bestObjective = data.bestObjective;
+      if(bestParams && freq.length) {
+        el('paramsOut').textContent = data.paramsText;
+        redrawAll();
+      }
+    } catch(e) { console.log('localStorage load failed'); }
+  }
+});
 el('formFocus').addEventListener('input', updateFocusLabel);
 
 function complex(r,i){ return {r:r, i:i}; }
@@ -848,6 +867,10 @@ async function runFit(){
     }, null, 2);
 
     redrawAll();
+        localStorage.setItem('fitData', JSON.stringify({
+      bestParams, lastFitParams, freq, loadedData, fitMeta, bestObjective,
+      paramsText: el('paramsOut').textContent
+    }));
     setStatus('Fit fertig.');
   } catch(err){
     console.error(err);
@@ -876,11 +899,7 @@ function resetFitMemory(){
 el('fitBtn').addEventListener('click', runFit);
 el('loadBtn').addEventListener('click', calcLoad);
 el('resetBtn').addEventListener('click', resetFitMemory);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") {
-    location.reload();
-  }
-});
+   localStorage.removeItem('fitData');
 </script>
 </body>
 </html>
