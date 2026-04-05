@@ -156,9 +156,13 @@
 <div class="wrap">
   <h1>Pickup Model Fitter</h1>
   <div class="sub">
-    Loads 1 to 4 TXT files. ! The fit uses only the curves that are present. The additional load is never included in the fit itself,
-    but is applied to the model afterwards only. New: <b>Shape Focus</b> blends between physical weighting and local peak/dip shape fidelity.
-    In addition, a pure display offset is calculated for the H magnitude after fitting, so the shape remains unchanged and only the level is adjusted.
+    Loads 1 to 4 TXT files. The fit uses only the curves that are present. The additional load is never included in the fit itself, but is applied to the model afterwards only.
+New: Shape Focus blends between physical weighting and local peak/dip shape fidelity. In addition, a pure display offset is calculated for the H magnitude 
+after fitting, so the shape remains unchanged and only the level is adjusted.
+New: The capacitance C is no longer searched freely over a wide range, but is automatically constrained based on the detected resonance frequency. 
+Using the physical relation between resonance frequency, inductance, and capacitance, a plausible range for C is derived from the measured peak and the current L bounds.
+
+This improves fit stability, prevents non-physical solutions, and leads to more consistent and reproducible results, while keeping the overall model and fitting strategy unchanged.
   </div>
 
   <div class="layout">
