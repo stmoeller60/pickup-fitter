@@ -1187,14 +1187,7 @@ el('resetBtn').addEventListener('click', resetFitMemory);
 
 restoreAppState();
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    saveAppState();
-  }
-  if (document.visibilityState === "visible") {
-    location.reload();
-  }
-});
+
 
 window.addEventListener("pagehide", () => {
   saveAppState();
