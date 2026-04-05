@@ -40,14 +40,14 @@
   .layout{
     display:grid;
     grid-template-columns:380px 1fr;
-    gap:14px;
+    gap:12px;
   }
   .panel{
     background:var(--panel);
     border:1px solid var(--line);
     border-radius:14px;
     padding:12px;
-    margin-bottom:12px;
+    margin-bottom:10px;
   }
   .panel h2{ margin:0 0 10px; font-size:18px; }
   .field{ margin-bottom:8px; }
@@ -102,18 +102,28 @@
     font-size:12px;
     min-height:150px;
   }
-  .plots{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .plots{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:6px;
+    align-content:start;
+  }
   .plotbox{
     background:var(--panel);
     border:1px solid var(--line);
     border-radius:14px;
-    padding:10px;
+    padding:8px;
   }
-  .plotbox h3{ margin:0 0 8px; font-size:15px; color:var(--muted); font-weight:700; }
+  .plotbox h3{
+    margin:0 0 6px;
+    font-size:15px;
+    color:var(--muted);
+    font-weight:700;
+  }
   canvas{
     display:block;
     width:100%;
-    height:200px;
+    height:190px;
     background:#0b0f15;
     border-radius:10px;
     border:1px solid #212835;
@@ -137,7 +147,7 @@
   }
   @media (max-width:920px){
     .layout{ grid-template-columns:1fr; }
-    .plots{ grid-template-columns:1fr; }
+    .plots{ grid-template-columns:1fr; gap:8px; }
     canvas{ height:180px; }
   }
 </style>
@@ -146,7 +156,7 @@
 <div class="wrap">
   <h1>Pickup Model Fitter</h1>
   <div class="sub">
-    Loads 1 to 4 TXT files. The fit uses only the curves that are present. The additional load is never included in the fit itself,
+    Loads 1 to 4 TXT files. ! The fit uses only the curves that are present. The additional load is never included in the fit itself,
     but is applied to the model afterwards only. New: <b>Shape Focus</b> blends between physical weighting and local peak/dip shape fidelity.
     In addition, a pure display offset is calculated for the H magnitude after fitting, so the shape remains unchanged and only the level is adjusted.
   </div>
@@ -426,7 +436,6 @@ function findFeaturesFromHmag(xArr, hArr){
   const hNorm = normalizeTo0dB(xArr, hArr, 200);
   const hSmooth = smoothArray(hNorm, 5);
 
-  // Peak: highest point above 4 kHz
   const peakCandidates = [];
   for(let i=0;i<xArr.length;i++){
     if(xArr[i] > 4000 && Number.isFinite(hNorm[i])) peakCandidates.push(i);
@@ -448,7 +457,6 @@ function findFeaturesFromHmag(xArr, hArr){
     if(hNorm[i] > hNorm[peakIdx]) peakIdx = i;
   }
 
-  // Dip: last local minimum before peak, above 2 kHz
   const dipCandidates = [];
   for(let i=2;i<peakIdx-1;i++){
     if(xArr[i] > 2000 && hSmooth[i-1] > hSmooth[i] && hSmooth[i+1] > hSmooth[i]){
@@ -502,8 +510,8 @@ function model(p,f){
 
   const Zs = complex(p.Rdc, w*p.L);
 
-  const Cp_block = 1.0; // F
-  const Ce_block = 1.0; // F
+  const Cp_block = 1.0;
+  const Ce_block = 1.0;
 
   let Ysh = complex(0, w * p.C);
 
@@ -969,7 +977,7 @@ function saveAppState(){
       bestObjective
     };
 
-    sessionStorage.setItem('pickupFitterState', JSON.stringify(state));
+    localStorage.setItem('pickupFitterState', JSON.stringify(state));
   } catch(err){
     console.error('saveAppState error:', err);
   }
@@ -977,7 +985,7 @@ function saveAppState(){
 
 function restoreAppState(){
   try{
-    const raw = sessionStorage.getItem('pickupFitterState');
+    const raw = localStorage.getItem('pickupFitterState');
     if(!raw) return false;
 
     const state = JSON.parse(raw);
@@ -1062,7 +1070,7 @@ function restoreAppState(){
 }
 
 function clearAppState(){
-  sessionStorage.removeItem('pickupFitterState');
+  localStorage.removeItem('pickupFitterState');
 }
 
 async function runFit(){
@@ -1191,19 +1199,10 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
     saveAppState();
   }
-  if (document.visibilityState === "visible") {
-    location.reload();
-  }
 });
 
 window.addEventListener("pagehide", () => {
   saveAppState();
-});
-
-window.addEventListener("pageshow", function(event) {
-  if (event.persisted) {
-    location.reload();
-  }
 });
 </script>
 </body>
