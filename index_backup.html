@@ -1123,13 +1123,15 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
 
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
-  const sim = simulateCurvesPure(bestParams);
-  const hOffset = computeHDisplayOffset(sim, fitMeta);
+
+  const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
+  const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
   const lim = getHPlotLimits();
-  drawPlot(el('plot1'), freq, sim.Hm.map(v=>v+hOffset), targetArray(loadedData.hmag), 'H Magnitude', 'dB', false, lim.min, lim.max);
-  drawPlot(el('plot2'), freq, sim.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
-  drawPlot(el('plot3'), freq, sim.Zm, targetArray(loadedData.zmag), 'Z Magnitude', 'Ohm', true);
-  drawPlot(el('plot4'), freq, sim.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
+
+  drawPlot(el('plot1'), freq, simDisplay.Hm.map(v=>v+hOffset), targetArray(loadedData.hmag), 'H Magnitude', 'dB', false, lim.min, lim.max);
+  drawPlot(el('plot2'), freq, simDisplay.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
+  drawPlot(el('plot3'), freq, simDisplay.Zm, targetArray(loadedData.zmag), 'Z Magnitude', 'Ohm', true);
+  drawPlot(el('plot4'), freq, simDisplay.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
 }
 
 function loadResponse(p){
@@ -1149,11 +1151,10 @@ function loadResponse(p){
 }
 
 function buildParamsReport(bestParams, bestObjective, fitMeta){
-  const simPure = simulateCurvesPure(bestParams);
-  const hOffset = computeHDisplayOffset(simPure, fitMeta);
+  const simFit = simulateCurvesForFit(bestParams, fitMeta);
+  const hOffset = computeHDisplayOffset(simFit, fitMeta);
   const alpha = Number(el('formFocus').value)/100;
 
-  const simFit = simulateCurvesForFit(bestParams, fitMeta);
   const ePhys = errorPhysical(simFit, fitMeta);
   const eForm = errorForm(simFit, fitMeta);
 
@@ -1184,7 +1185,8 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     measurement_load_Rin_ohm: meas.enabled ? +meas.R.toFixed(3) : null,
     measurement_load_Cin_pF: meas.enabled ? +(meas.C*1e12).toFixed(3) : null,
     measurement_load_Lin_H: meas.enabled ? +meas.L.toFixed(6) : null,
-    post_fit_plots_use_pure_internal_model: true,
+    post_fit_plots_1_to_4_show_fit_condition: true,
+    plot5_uses_pure_internal_model_only: true,
     additional_RL_LL_CL_load_is_separate_from_measurement_load: true
   };
 }
@@ -1294,8 +1296,8 @@ function restoreAppState(){
       );
 
       const y = loadResponse(bestParams);
-      const simPure = simulateCurvesPure(bestParams);
-      const hOffset = computeHDisplayOffset(simPure, fitMeta);
+      const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
+      const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
       const lim = getHPlotLimits();
       drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
     }
@@ -1402,8 +1404,8 @@ async function runFit(){
 function calcLoad(){
   if(!bestParams){ setStatus('Run a fit first.'); return; }
   const y = loadResponse(bestParams);
-  const simPure = simulateCurvesPure(bestParams);
-  const hOffset = computeHDisplayOffset(simPure, fitMeta);
+  const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
+  const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
   const lim = getHPlotLimits();
   drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
   setStatus('Loaded H magnitude calculated from pure fitted pickup model.');
