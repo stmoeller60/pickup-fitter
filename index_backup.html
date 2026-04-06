@@ -59,7 +59,8 @@
   }
   input[type="file"],
   input[type="number"],
-  input[type="range"]{
+  input[type="range"],
+  select{
     width:100%;
     padding:10px;
     border-radius:10px;
@@ -163,6 +164,8 @@ New: The capacitance C is no longer searched freely over a wide range, but is au
 Using the physical relation between resonance frequency, inductance, and capacitance, a plausible range for C is derived from the measured peak and the current L bounds.
 
 This improves fit stability, prevents non-physical solutions, and leads to more consistent and reproducible results, while keeping the overall model and fitting strategy unchanged.
+
+New: A known measurement load can now be included during the fit only. This allows reconstruction of the internal pickup model even when H and optionally Z were measured under a real interface input load such as Rin and Cin. The measurement load is removed completely after fitting. Any later RL/LL/CL load simulation always uses the pure identified internal pickup model only.
   </div>
 
   <div class="layout">
@@ -187,6 +190,27 @@ This improves fit stability, prevents non-physical solutions, and leads to more 
           <b>Generator → (Rdc + jωL) → Output</b><br>
           From output to ground:<br>
           <b>Rp ∥ C ∥ (Re + jωLe)</b>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Measurement Load During Fit</h2>
+        <div class="checkline"><input id="useMeasLoad" type="checkbox"><span>Use known measurement load in fit</span></div>
+        <div class="row">
+          <div class="field"><label>Rin_meas [Ω]</label><input id="measR" type="number" value="650000"></div>
+          <div class="field"><label>Lin_meas [H]</label><input id="measL" type="number" value="0" step="0.001"></div>
+        </div>
+        <div class="field"><label>Cin_meas [pF]</label><input id="measC" type="number" value="150" step="0.1"></div>
+        <div class="field">
+          <label>Apply measurement load during fit to</label>
+          <select id="measApplyMode">
+            <option value="hOnly" selected>H only</option>
+            <option value="hAndZ">H and Z</option>
+          </select>
+        </div>
+        <div class="small">
+          This known measurement load is applied <b>only during the fit</b> in order to reconstruct the internal pickup model from loaded measurements.
+          After fitting, the measurement load is removed completely. The later RL / LL / CL simulation remains strictly separate and is always based on the pure internal model.
         </div>
       </div>
 
@@ -245,7 +269,8 @@ This improves fit stability, prevents non-physical solutions, and leads to more 
         </div>
         <div class="field"><label>C [pF]</label><input id="loadC" type="number" value="300"></div>
         <div class="small">
-          This load is applied as an additional shunt load at the output and generates the 5th plot: <b>H Magnitude with Load</b>.
+          This load is applied as an additional shunt load at the output and generates the 5th plot: <b>H Magnitude with Load</b>.<br>
+          It is always calculated from the <b>pure fitted internal pickup model</b>. The fit-time measurement load is never included here.
         </div>
       </div>
 
@@ -580,7 +605,42 @@ function applyResonanceGuidedCBounds(meta){
   };
 }
 
-function model(p,f){
+function getMeasurementLoadSettings(){
+  return {
+    enabled: !!el('useMeasLoad').checked,
+    mode: el('measApplyMode').value,
+    R: Number(el('measR').value),
+    L: Number(el('measL').value),
+    C: Number(el('measC').value) * 1e-12
+  };
+}
+
+function buildParallelLoadAdmittance(f, load){
+  if(!load) return complex(0,0);
+
+  const w = 2*Math.PI*f;
+  let Y = complex(0,0);
+
+  if(Number.isFinite(load.R) && load.R > 0){
+    Y = add(Y, complex(1/load.R, 0));
+  }
+
+  if(Number.isFinite(load.L) && load.L > 0){
+    Y = add(Y, inv(complex(0, w*load.L)));
+  }
+
+  if(Number.isFinite(load.C) && load.C > 0){
+    Y = add(Y, complex(0, w*load.C));
+  }
+
+  return Y;
+}
+
+function admittanceIsZero(Y){
+  return Math.abs(Y.r) < 1e-30 && Math.abs(Y.i) < 1e-30;
+}
+
+function buildInternalModel(p,f){
   const w = 2*Math.PI*f;
   const wSafe = Math.max(w, 1e-12);
 
@@ -605,18 +665,74 @@ function model(p,f){
   }
 
   const Zsh = inv(Ysh);
-  const H = div(Zsh, add(Zs, Zsh));
-  const Zin = inv(add(inv(Zs), inv(Zsh)));
-
-  return { Hm:20*Math.log10(absC(H)), Hp:angC(H), Zm:absC(Zin), Zp:angC(Zin), Zsh, Zs };
+  return { Zs, Zsh };
 }
 
-function simulateCurves(p){
+function applyParallelLoadToZsh(Zsh, loadY){
+  if(admittanceIsZero(loadY)) return Zsh;
+  return inv(add(inv(Zsh), loadY));
+}
+
+function modelPure(p,f){
+  const internal = buildInternalModel(p,f);
+  const H = div(internal.Zsh, add(internal.Zs, internal.Zsh));
+  const Zin = inv(add(inv(internal.Zs), inv(internal.Zsh)));
+  return {
+    Hm:20*Math.log10(absC(H)),
+    Hp:angC(H),
+    Zm:absC(Zin),
+    Zp:angC(Zin),
+    Zsh:internal.Zsh,
+    Zs:internal.Zs
+  };
+}
+
+function modelForFit(p,f, measSettings){
+  const internal = buildInternalModel(p,f);
+
+  const useMeas = measSettings && measSettings.enabled;
+  const applyToH = useMeas;
+  const applyToZ = useMeas && measSettings.mode === 'hAndZ';
+
+  const measY = useMeas ? buildParallelLoadAdmittance(f, measSettings) : complex(0,0);
+
+  const ZshH = applyToH ? applyParallelLoadToZsh(internal.Zsh, measY) : internal.Zsh;
+  const HH = div(ZshH, add(internal.Zs, ZshH));
+
+  const ZshZ = applyToZ ? applyParallelLoadToZsh(internal.Zsh, measY) : internal.Zsh;
+  const ZinZ = inv(add(inv(internal.Zs), inv(ZshZ)));
+
+  return {
+    Hm:20*Math.log10(absC(HH)),
+    Hp:angC(HH),
+    Zm:absC(ZinZ),
+    Zp:angC(ZinZ),
+    Zsh:internal.Zsh,
+    Zs:internal.Zs
+  };
+}
+
+function simulateCurvesPure(p){
   const Hm=[], Hp=[], Zm=[], Zp=[];
   for(const f of freq){
-    const m = model(p,f);
+    const m = modelPure(p,f);
     Hm.push(m.Hm); Hp.push(m.Hp); Zm.push(m.Zm); Zp.push(m.Zp);
   }
+  return {Hm,Hp,Zm,Zp};
+}
+
+function simulateCurvesForFit(p, meta){
+  const Hm=[], Hp=[], Zm=[], Zp=[];
+  const measSettings = meta ? meta.measSettings : getMeasurementLoadSettings();
+
+  for(const f of freq){
+    const m = modelForFit(p, f, measSettings);
+    Hm.push(m.Hm);
+    Hp.push(m.Hp);
+    Zm.push(m.Zm);
+    Zp.push(m.Zp);
+  }
+
   return {Hm,Hp,Zm,Zp};
 }
 
@@ -668,7 +784,8 @@ function buildFitMeta(data){
     lowIdx, regionIdx, lowHz,
     fDip, fPeak, wLocal, hSlope,
     hFeatures,
-    cBoundsInfo: null
+    cBoundsInfo: null,
+    measSettings: getMeasurementLoadSettings()
   };
 }
 
@@ -766,7 +883,7 @@ function errorForm(sim, meta){
 
 function errorOf(p, meta){
   const alpha = Number(el('formFocus').value) / 100;
-  const sim = simulateCurves(p);
+  const sim = simulateCurvesForFit(p, meta);
   const ePhys = errorPhysical(sim, meta);
   const eForm = errorForm(sim, meta);
   return (1-alpha)*ePhys + alpha*eForm;
@@ -1006,7 +1123,7 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
 
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
-  const sim = simulateCurves(bestParams);
+  const sim = simulateCurvesPure(bestParams);
   const hOffset = computeHDisplayOffset(sim, fitMeta);
   const lim = getHPlotLimits();
   drawPlot(el('plot1'), freq, sim.Hm.map(v=>v+hOffset), targetArray(loadedData.hmag), 'H Magnitude', 'dB', false, lim.min, lim.max);
@@ -1020,19 +1137,56 @@ function loadResponse(p){
   const L = Number(el('loadL').value);
   const C = Number(el('loadC').value) * 1e-12;
   const out = [];
+
   for(const f of freq){
-    const w = 2*Math.PI*f;
-    const m = model(p,f);
-    let Yload = complex(0,0);
-    if(R > 0) Yload = add(Yload, complex(1/R,0));
-    if(L > 0) Yload = add(Yload, inv(complex(0,w*L)));
-    if(C > 0) Yload = add(Yload, complex(0,w*C));
-    let ZoutLoaded = m.Zsh;
-    if(Math.abs(Yload.r)>0 || Math.abs(Yload.i)>0) ZoutLoaded = inv(add(inv(m.Zsh), Yload));
-    const Hload = div(ZoutLoaded, add(m.Zs, ZoutLoaded));
+    const internal = buildInternalModel(p,f);
+    const loadY = buildParallelLoadAdmittance(f, {R,L,C});
+    const ZoutLoaded = applyParallelLoadToZsh(internal.Zsh, loadY);
+    const Hload = div(ZoutLoaded, add(internal.Zs, ZoutLoaded));
     out.push(20*Math.log10(absC(Hload)));
   }
   return out;
+}
+
+function buildParamsReport(bestParams, bestObjective, fitMeta){
+  const simPure = simulateCurvesPure(bestParams);
+  const hOffset = computeHDisplayOffset(simPure, fitMeta);
+  const alpha = Number(el('formFocus').value)/100;
+
+  const simFit = simulateCurvesForFit(bestParams, fitMeta);
+  const ePhys = errorPhysical(simFit, fitMeta);
+  const eForm = errorForm(simFit, fitMeta);
+
+  const meas = fitMeta && fitMeta.measSettings ? fitMeta.measSettings : getMeasurementLoadSettings();
+
+  return {
+    Rp: +bestParams.Rp.toFixed(3),
+    L_H: +bestParams.L.toFixed(6),
+    C_pF: +(bestParams.C*1e12).toFixed(3),
+    Rdc: +bestParams.Rdc.toFixed(3),
+    Re: +bestParams.Re.toFixed(3),
+    Le_H: +bestParams.Le.toFixed(6),
+    objective: +((bestObjective ?? 0)).toFixed(6),
+    objective_physical: +ePhys.toFixed(6),
+    objective_form: +eForm.toFixed(6),
+    h_display_offset_db: +hOffset.toFixed(6),
+    form_focus: +alpha.toFixed(2),
+    low_anchor_hz: +fitMeta.lowHz.toFixed(1),
+    dip_focus_hz: +fitMeta.fDip.toFixed(1),
+    peak_focus_hz: +fitMeta.fPeak.toFixed(1),
+    auto_c_bounds_applied: !!(fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied),
+    auto_c_min_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMin_pF.toFixed(3) : null,
+    auto_c_max_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMax_pF.toFixed(3) : null,
+    resonance_used_hz: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.f0_Hz.toFixed(1) : null,
+    c_bounds_reason: fitMeta.cBoundsInfo && !fitMeta.cBoundsInfo.applied ? fitMeta.cBoundsInfo.reason : null,
+    measurement_load_used_in_fit: !!meas.enabled,
+    measurement_load_apply_mode: meas.enabled ? meas.mode : null,
+    measurement_load_Rin_ohm: meas.enabled ? +meas.R.toFixed(3) : null,
+    measurement_load_Cin_pF: meas.enabled ? +(meas.C*1e12).toFixed(3) : null,
+    measurement_load_Lin_H: meas.enabled ? +meas.L.toFixed(6) : null,
+    post_fit_plots_use_pure_internal_model: true,
+    additional_RL_LL_CL_load_is_separate_from_measurement_load: true
+  };
 }
 
 function saveAppState(){
@@ -1059,7 +1213,12 @@ function saveAppState(){
         hMin: el('hMin').value,
         hMax: el('hMax').value,
         useRL: el('useRL').checked,
-        weightH: el('weightH').checked
+        weightH: el('weightH').checked,
+        useMeasLoad: el('useMeasLoad').checked,
+        measR: el('measR').value,
+        measL: el('measL').value,
+        measC: el('measC').value,
+        measApplyMode: el('measApplyMode').value
       },
       loadedData,
       bestParams,
@@ -1104,6 +1263,11 @@ function restoreAppState(){
       el('hMax').value = state.ui.hMax ?? el('hMax').value;
       el('useRL').checked = !!state.ui.useRL;
       el('weightH').checked = !!state.ui.weightH;
+      el('useMeasLoad').checked = !!state.ui.useMeasLoad;
+      el('measR').value = state.ui.measR ?? el('measR').value;
+      el('measL').value = state.ui.measL ?? el('measL').value;
+      el('measC').value = state.ui.measC ?? el('measC').value;
+      el('measApplyMode').value = state.ui.measApplyMode ?? el('measApplyMode').value;
       updateFocusLabel();
     }
 
@@ -1124,34 +1288,14 @@ function restoreAppState(){
 
       redrawAll();
 
-      const sim = simulateCurves(bestParams);
-      const hOffset = computeHDisplayOffset(sim, fitMeta);
-      const alpha = Number(el('formFocus').value)/100;
-      const ePhys = errorPhysical(sim, fitMeta);
-      const eForm = errorForm(sim, fitMeta);
-
-      el('paramsOut').textContent = JSON.stringify({
-        Rp: +bestParams.Rp.toFixed(3),
-        L_H: +bestParams.L.toFixed(6),
-        C_pF: +(bestParams.C*1e12).toFixed(3),
-        Rdc: +bestParams.Rdc.toFixed(3),
-        Re: +bestParams.Re.toFixed(3),
-        Le_H: +bestParams.Le.toFixed(6),
-        objective: +((bestObjective ?? 0)).toFixed(6),
-        objective_physical: +ePhys.toFixed(6),
-        objective_form: +eForm.toFixed(6),
-        h_display_offset_db: +hOffset.toFixed(6),
-        form_focus: +alpha.toFixed(2),
-        low_anchor_hz: +fitMeta.lowHz.toFixed(1),
-        dip_focus_hz: +fitMeta.fDip.toFixed(1),
-        peak_focus_hz: +fitMeta.fPeak.toFixed(1),
-        auto_c_bounds_applied: !!(fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied),
-        auto_c_min_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMin_pF.toFixed(3) : null,
-        auto_c_max_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMax_pF.toFixed(3) : null,
-        resonance_used_hz: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.f0_Hz.toFixed(1) : null
-      }, null, 2);
+      el('paramsOut').textContent = JSON.stringify(
+        buildParamsReport(bestParams, bestObjective, fitMeta),
+        null, 2
+      );
 
       const y = loadResponse(bestParams);
+      const simPure = simulateCurvesPure(bestParams);
+      const hOffset = computeHDisplayOffset(simPure, fitMeta);
       const lim = getHPlotLimits();
       drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
     }
@@ -1199,10 +1343,16 @@ async function runFit(){
     const starts = makeStartPopulation();
     const iters = 260;
 
+    const meas = fitMeta.measSettings;
+    let baseStatus = 'Fit running ...';
+    if(meas && meas.enabled){
+      baseStatus = `Fit running ... measurement load active (${meas.mode === 'hOnly' ? 'H only' : 'H and Z'})`;
+    }
+
     if(cBoundsInfo.applied){
-      setStatus(`Fit running ... resonance-guided C bounds applied (${cBoundsInfo.cMin_pF.toFixed(1)} pF ... ${cBoundsInfo.cMax_pF.toFixed(1)} pF)`);
+      setStatus(`${baseStatus} | resonance-guided C bounds applied (${cBoundsInfo.cMin_pF.toFixed(1)} pF ... ${cBoundsInfo.cMax_pF.toFixed(1)} pF)`);
     } else {
-      setStatus('Fit running ...');
+      setStatus(baseStatus);
     }
 
     for(let s=0; s<starts.length; s++){
@@ -1224,9 +1374,9 @@ async function runFit(){
       }
 
       if(cBoundsInfo.applied){
-        setStatus(`Fit running ... start ${s+1}/${starts.length} | C bounds ${cBoundsInfo.cMin_pF.toFixed(1)}...${cBoundsInfo.cMax_pF.toFixed(1)} pF`);
+        setStatus(`${baseStatus} | start ${s+1}/${starts.length} | C bounds ${cBoundsInfo.cMin_pF.toFixed(1)}...${cBoundsInfo.cMax_pF.toFixed(1)} pF`);
       } else {
-        setStatus(`Fit running ... start ${s+1}/${starts.length}`);
+        setStatus(`${baseStatus} | start ${s+1}/${starts.length}`);
       }
       await new Promise(r => setTimeout(r, 0));
     }
@@ -1235,33 +1385,10 @@ async function runFit(){
     bestObjective = bestE;
     lastFitParams = JSON.parse(JSON.stringify(best));
 
-    const sim = simulateCurves(bestParams);
-    const hOffset = computeHDisplayOffset(sim, fitMeta);
-    const alpha = Number(el('formFocus').value)/100;
-    const ePhys = errorPhysical(sim, fitMeta);
-    const eForm = errorForm(sim, fitMeta);
-
-    el('paramsOut').textContent = JSON.stringify({
-      Rp: +bestParams.Rp.toFixed(3),
-      L_H: +bestParams.L.toFixed(6),
-      C_pF: +(bestParams.C*1e12).toFixed(3),
-      Rdc: +bestParams.Rdc.toFixed(3),
-      Re: +bestParams.Re.toFixed(3),
-      Le_H: +bestParams.Le.toFixed(6),
-      objective: +bestObjective.toFixed(6),
-      objective_physical: +ePhys.toFixed(6),
-      objective_form: +eForm.toFixed(6),
-      h_display_offset_db: +hOffset.toFixed(6),
-      form_focus: +alpha.toFixed(2),
-      low_anchor_hz: +fitMeta.lowHz.toFixed(1),
-      dip_focus_hz: +fitMeta.fDip.toFixed(1),
-      peak_focus_hz: +fitMeta.fPeak.toFixed(1),
-      auto_c_bounds_applied: !!(fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied),
-      auto_c_min_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMin_pF.toFixed(3) : null,
-      auto_c_max_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMax_pF.toFixed(3) : null,
-      resonance_used_hz: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.f0_Hz.toFixed(1) : null,
-      c_bounds_reason: fitMeta.cBoundsInfo && !fitMeta.cBoundsInfo.applied ? fitMeta.cBoundsInfo.reason : null
-    }, null, 2);
+    el('paramsOut').textContent = JSON.stringify(
+      buildParamsReport(bestParams, bestObjective, fitMeta),
+      null, 2
+    );
 
     redrawAll();
     setStatus('Fit finished.');
@@ -1275,10 +1402,11 @@ async function runFit(){
 function calcLoad(){
   if(!bestParams){ setStatus('Run a fit first.'); return; }
   const y = loadResponse(bestParams);
-  const hOffset = computeHDisplayOffset(simulateCurves(bestParams), fitMeta);
+  const simPure = simulateCurvesPure(bestParams);
+  const hOffset = computeHDisplayOffset(simPure, fitMeta);
   const lim = getHPlotLimits();
   drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
-  setStatus('Loaded H magnitude calculated.');
+  setStatus('Loaded H magnitude calculated from pure fitted pickup model.');
   saveAppState();
 }
 
