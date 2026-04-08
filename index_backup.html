@@ -215,6 +215,27 @@ New: A known measurement load can now be included during the fit only. This allo
       </div>
 
       <div class="panel">
+        <h2>LCR Q Constraint</h2>
+        <div class="checkline"><input id="useQConstraint" type="checkbox"><span>Use LCR Q constraint in fit</span></div>
+        <div class="row">
+          <div class="field"><label>Q_meas</label><input id="qMeas" type="number" value="" step="0.001"></div>
+          <div class="field"><label>f_meas [Hz]</label><input id="qFreq" type="number" value="1000" step="1"></div>
+        </div>
+        <div class="field"><label>Q weight</label><input id="qWeight" type="number" value="0.25" step="0.001"></div>
+        <div class="small">
+          Optional soft constraint only. The Q term is added to the total fit error only when enabled and only for valid positive inputs.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>H Phase Correction</h2>
+        <div class="checkline"><input id="applyHPhaseCorrection" type="checkbox"><span>Apply -90° correction to H phase target</span></div>
+        <div class="small">
+          The correction is applied only to the <b>target H phase</b> used in the fit and plot. The model phase itself remains unchanged.
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Fit Strategy</h2>
         <div class="field">
           <label>Shape Focus (0 = Physics / 1 = Peak-Dip Shape)</label>
@@ -341,6 +362,45 @@ function rand(a,b){ return a + Math.random()*(b-a); }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function mean(arr){ return arr.reduce((a,b)=>a+b,0) / (arr.length || 1); }
 function sq(x){ return x*x; }
+
+function wrapPhaseDeg(deg){
+  if(!Number.isFinite(deg)) return NaN;
+  let x = ((deg + 180) % 360 + 360) % 360 - 180;
+  if(x === -180) x = 180;
+  return x;
+}
+
+function phaseDiffDeg(a, b){
+  if(!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
+  return wrapPhaseDeg(a - b);
+}
+
+function unwrapPhaseArrayDeg(arr){
+  if(!arr || !arr.length) return arr ? arr.slice() : null;
+  const out = new Array(arr.length);
+  out[0] = arr[0];
+  for(let i=1;i<arr.length;i++){
+    const v = arr[i];
+    const prev = out[i-1];
+    if(!Number.isFinite(v) || !Number.isFinite(prev)){
+      out[i] = v;
+      continue;
+    }
+    let delta = v - arr[i-1];
+    delta = wrapPhaseDeg(delta);
+    out[i] = prev + delta;
+  }
+  return out;
+}
+
+function computePhaseErrorArrayDeg(simArr, targetArr){
+  if(!simArr || !targetArr || simArr.length !== targetArr.length) return null;
+  const out = new Array(simArr.length);
+  for(let i=0;i<simArr.length;i++){
+    out[i] = phaseDiffDeg(simArr[i], targetArr[i]);
+  }
+  return out;
+}
 
 async function loadFile(inputEl){
   if(!inputEl.files || !inputEl.files[0]) return null;
@@ -615,6 +675,19 @@ function getMeasurementLoadSettings(){
   };
 }
 
+function getQConstraintSettings(){
+  return {
+    enabled: !!el('useQConstraint').checked,
+    Q_meas: Number(el('qMeas').value),
+    f_meas: Number(el('qFreq').value),
+    Q_weight: Number(el('qWeight').value)
+  };
+}
+
+function getHPhaseCorrectionDeg(){
+  return el('applyHPhaseCorrection').checked ? -90 : 0;
+}
+
 function buildParallelLoadAdmittance(f, load){
   if(!load) return complex(0,0);
 
@@ -736,11 +809,31 @@ function simulateCurvesForFit(p, meta){
   return {Hm,Hp,Zm,Zp};
 }
 
+function computeModelQAtFrequency(p, f){
+  if(!p || !Number.isFinite(f) || f <= 0) return null;
+
+  const internal = buildInternalModel(p, f);
+  const Zin = inv(add(inv(internal.Zs), inv(internal.Zsh)));
+
+  if(!Zin || !Number.isFinite(Zin.r) || !Number.isFinite(Zin.i)) return null;
+  if(!(Zin.r > 0)) return null;
+
+  const Q_model = Math.abs(Zin.i) / Zin.r;
+  if(!Number.isFinite(Q_model)) return null;
+
+  return Q_model;
+}
+
 function buildFitMeta(data){
   const hmagT = targetArray(data.hmag);
-  const hphT = targetArray(data.hph);
+  let hphT = targetArray(data.hph);
   const zmagT = targetArray(data.zmag);
   const zphT = targetArray(data.zph);
+
+  const hPhaseCorrectionDeg = getHPhaseCorrectionDeg();
+  if(hphT && hPhaseCorrectionDeg){
+    hphT = hphT.map(v => Number.isFinite(v) ? v + hPhaseCorrectionDeg : v);
+  }
 
   let lowHz = Number(el('lowAnchorHz').value);
   if(!Number.isFinite(lowHz) || lowHz <= 0) lowHz = 120;
@@ -785,7 +878,9 @@ function buildFitMeta(data){
     fDip, fPeak, wLocal, hSlope,
     hFeatures,
     cBoundsInfo: null,
-    measSettings: getMeasurementLoadSettings()
+    measSettings: getMeasurementLoadSettings(),
+    qConstraint: getQConstraintSettings(),
+    hPhaseCorrectionDeg
   };
 }
 
@@ -798,20 +893,30 @@ function errorPhysical(sim, meta){
 
   if(meta.hmagT) for(let i=0;i<freq.length;i++){
     const d = (sim.Hm[i] - meta.hmagT[i]) * wH[i];
-    e += d*d; n++;
+    if(Number.isFinite(d)){ e += d*d; n++; }
   }
-  if(meta.hphT) for(let i=0;i<freq.length;i++){
-    const d = (sim.Hp[i] - meta.hphT[i]) / 5;
-    e += d*d; n++;
+
+  if(meta.hphT){
+    const dPhase = computePhaseErrorArrayDeg(sim.Hp, meta.hphT);
+    for(let i=0;i<freq.length;i++){
+      const d = dPhase[i] / 5;
+      if(Number.isFinite(d)){ e += d*d; n++; }
+    }
   }
+
   if(meta.zmagT) for(let i=0;i<freq.length;i++){
     const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.08;
-    e += d*d; n++;
+    if(Number.isFinite(d)){ e += d*d; n++; }
   }
-  if(meta.zphT) for(let i=0;i<freq.length;i++){
-    const d = (sim.Zp[i] - meta.zphT[i]) / 3;
-    e += d*d; n++;
+
+  if(meta.zphT){
+    const dPhase = computePhaseErrorArrayDeg(sim.Zp, meta.zphT);
+    for(let i=0;i<freq.length;i++){
+      const d = dPhase[i] / 3;
+      if(Number.isFinite(d)){ e += d*d; n++; }
+    }
   }
+
   return n ? e/n : 1e99;
 }
 
@@ -823,19 +928,19 @@ function errorForm(sim, meta){
 
     for(let i=0;i<freq.length;i++) if(meta.lowIdx[i]){
       const d = (simNorm[i] - meta.hmagNormT[i]) / 0.22;
-      e += d*d; n++;
+      if(Number.isFinite(d)){ e += d*d; n++; }
     }
 
     for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
       const d = ((simNorm[i] - meta.hmagNormT[i]) * meta.wLocal[i]) / 0.42;
-      e += d*d; n++;
+      if(Number.isFinite(d)){ e += d*d; n++; }
     }
 
     if(meta.hSlope){
       const simSlope = slopeLog(freq, simNorm);
       for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
         const d = ((simSlope[i] - meta.hSlope[i]) * meta.wLocal[i]) / 2.6;
-        e += d*d; n++;
+        if(Number.isFinite(d)){ e += d*d; n++; }
       }
     }
 
@@ -844,15 +949,15 @@ function errorForm(sim, meta){
     if(meta.hFeatures && meta.hFeatures.peakFound && simFeatures.peakFound){
       const dFreq = (Math.log10(simFeatures.peak.freq) - Math.log10(meta.hFeatures.peak.freq)) / 0.04;
       const dVal  = (simFeatures.peak.value - meta.hFeatures.peak.value) / 0.6;
-      e += dFreq*dFreq; n++;
-      e += dVal*dVal; n++;
+      if(Number.isFinite(dFreq)){ e += dFreq*dFreq; n++; }
+      if(Number.isFinite(dVal)){ e += dVal*dVal; n++; }
     }
 
     if(meta.hFeatures && meta.hFeatures.dipFound && simFeatures.dipFound){
       const dFreq = (Math.log10(simFeatures.dip.freq) - Math.log10(meta.hFeatures.dip.freq)) / 0.05;
       const dVal  = (simFeatures.dip.value - meta.hFeatures.dip.value) / 0.6;
-      e += dFreq*dFreq; n++;
-      e += dVal*dVal; n++;
+      if(Number.isFinite(dFreq)){ e += dFreq*dFreq; n++; }
+      if(Number.isFinite(dVal)){ e += dVal*dVal; n++; }
     }
 
     if(meta.hFeatures && meta.hFeatures.peakFound && meta.hFeatures.dipFound &&
@@ -860,22 +965,29 @@ function errorForm(sim, meta){
       const spanT = meta.hFeatures.peak.value - meta.hFeatures.dip.value;
       const spanM = simFeatures.peak.value - simFeatures.dip.value;
       const dSpan = (spanM - spanT) / 0.5;
-      e += dSpan*dSpan; n++;
+      if(Number.isFinite(dSpan)){ e += dSpan*dSpan; n++; }
     }
   }
 
-  if(meta.hphT) for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
-    const d = ((sim.Hp[i] - meta.hphT[i]) * (0.7 + 0.3*meta.wLocal[i])) / 4.8;
-    e += d*d; n++;
+  if(meta.hphT){
+    const dPhase = computePhaseErrorArrayDeg(sim.Hp, meta.hphT);
+    for(let i=0;i<freq.length;i++) if(meta.regionIdx[i]){
+      const d = (dPhase[i] * (0.7 + 0.3*meta.wLocal[i])) / 4.8;
+      if(Number.isFinite(d)){ e += d*d; n++; }
+    }
   }
 
   if(meta.zmagT) for(let i=0;i<freq.length;i++){
     const d = (Math.log(sim.Zm[i]) - Math.log(meta.zmagT[i])) / 0.16;
-    e += d*d; n++;
+    if(Number.isFinite(d)){ e += d*d; n++; }
   }
-  if(meta.zphT) for(let i=0;i<freq.length;i++){
-    const d = (sim.Zp[i] - meta.zphT[i]) / 5.0;
-    e += d*d; n++;
+
+  if(meta.zphT){
+    const dPhase = computePhaseErrorArrayDeg(sim.Zp, meta.zphT);
+    for(let i=0;i<freq.length;i++){
+      const d = dPhase[i] / 5.0;
+      if(Number.isFinite(d)){ e += d*d; n++; }
+    }
   }
 
   return n ? e/n : 1e99;
@@ -886,7 +998,25 @@ function errorOf(p, meta){
   const sim = simulateCurvesForFit(p, meta);
   const ePhys = errorPhysical(sim, meta);
   const eForm = errorForm(sim, meta);
-  return (1-alpha)*ePhys + alpha*eForm;
+
+  let e = (1-alpha)*ePhys + alpha*eForm;
+
+  const qc = meta ? meta.qConstraint : getQConstraintSettings();
+  if(
+    qc &&
+    qc.enabled &&
+    Number.isFinite(qc.Q_meas) && qc.Q_meas > 0 &&
+    Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
+    Number.isFinite(qc.Q_weight)
+  ){
+    const Q_model = computeModelQAtFrequency(p, qc.f_meas);
+    if(Number.isFinite(Q_model)){
+      const eQ = qc.Q_weight * sq(Q_model - qc.Q_meas);
+      if(Number.isFinite(eQ)) e += eQ;
+    }
+  }
+
+  return Number.isFinite(e) ? e : 1e99;
 }
 
 function computeHDisplayOffset(sim, meta){
@@ -1128,10 +1258,10 @@ function redrawAll(){
   const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
   const lim = getHPlotLimits();
 
-  drawPlot(el('plot1'), freq, simDisplay.Hm.map(v=>v+hOffset), targetArray(loadedData.hmag), 'H Magnitude', 'dB', false, lim.min, lim.max);
-  drawPlot(el('plot2'), freq, simDisplay.Hp, targetArray(loadedData.hph), 'H Phase', 'deg', false);
-  drawPlot(el('plot3'), freq, simDisplay.Zm, targetArray(loadedData.zmag), 'Z Magnitude', 'Ohm', true);
-  drawPlot(el('plot4'), freq, simDisplay.Zp, targetArray(loadedData.zph), 'Z Phase', 'deg', false);
+  drawPlot(el('plot1'), freq, simDisplay.Hm.map(v=>v+hOffset), fitMeta ? fitMeta.hmagT : targetArray(loadedData.hmag), 'H Magnitude', 'dB', false, lim.min, lim.max);
+  drawPlot(el('plot2'), freq, simDisplay.Hp, fitMeta ? fitMeta.hphT : targetArray(loadedData.hph), 'H Phase', 'deg', false);
+  drawPlot(el('plot3'), freq, simDisplay.Zm, fitMeta ? fitMeta.zmagT : targetArray(loadedData.zmag), 'Z Magnitude', 'Ohm', true);
+  drawPlot(el('plot4'), freq, simDisplay.Zp, fitMeta ? fitMeta.zphT : targetArray(loadedData.zph), 'Z Phase', 'deg', false);
 }
 
 function loadResponse(p){
@@ -1159,6 +1289,22 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
   const eForm = errorForm(simFit, fitMeta);
 
   const meas = fitMeta && fitMeta.measSettings ? fitMeta.measSettings : getMeasurementLoadSettings();
+  const qc = fitMeta && fitMeta.qConstraint ? fitMeta.qConstraint : getQConstraintSettings();
+
+  let Q_model = null;
+  let objective_q_term = null;
+  if(
+    qc &&
+    qc.enabled &&
+    Number.isFinite(qc.Q_meas) && qc.Q_meas > 0 &&
+    Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
+    Number.isFinite(qc.Q_weight)
+  ){
+    Q_model = computeModelQAtFrequency(bestParams, qc.f_meas);
+    if(Number.isFinite(Q_model)){
+      objective_q_term = qc.Q_weight * sq(Q_model - qc.Q_meas);
+    }
+  }
 
   return {
     Rp: +bestParams.Rp.toFixed(3),
@@ -1170,6 +1316,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     objective: +((bestObjective ?? 0)).toFixed(6),
     objective_physical: +ePhys.toFixed(6),
     objective_form: +eForm.toFixed(6),
+    objective_q_term: Number.isFinite(objective_q_term) ? +objective_q_term.toFixed(6) : null,
     h_display_offset_db: +hOffset.toFixed(6),
     form_focus: +alpha.toFixed(2),
     low_anchor_hz: +fitMeta.lowHz.toFixed(1),
@@ -1185,6 +1332,12 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     measurement_load_Rin_ohm: meas.enabled ? +meas.R.toFixed(3) : null,
     measurement_load_Cin_pF: meas.enabled ? +(meas.C*1e12).toFixed(3) : null,
     measurement_load_Lin_H: meas.enabled ? +meas.L.toFixed(6) : null,
+    q_constraint_active: !!qc.enabled,
+    Q_meas: qc.enabled && Number.isFinite(qc.Q_meas) ? +qc.Q_meas.toFixed(6) : null,
+    f_meas: qc.enabled && Number.isFinite(qc.f_meas) ? +qc.f_meas.toFixed(3) : null,
+    Q_model: Number.isFinite(Q_model) ? +Q_model.toFixed(6) : null,
+    Q_weight: qc.enabled && Number.isFinite(qc.Q_weight) ? +qc.Q_weight.toFixed(6) : null,
+    h_phase_correction_deg: fitMeta && Number.isFinite(fitMeta.hPhaseCorrectionDeg) ? fitMeta.hPhaseCorrectionDeg : 0,
     post_fit_plots_1_to_4_show_fit_condition: true,
     plot5_uses_pure_internal_model_only: true,
     additional_RL_LL_CL_load_is_separate_from_measurement_load: true
@@ -1220,7 +1373,12 @@ function saveAppState(){
         measR: el('measR').value,
         measL: el('measL').value,
         measC: el('measC').value,
-        measApplyMode: el('measApplyMode').value
+        measApplyMode: el('measApplyMode').value,
+        useQConstraint: el('useQConstraint').checked,
+        qMeas: el('qMeas').value,
+        qFreq: el('qFreq').value,
+        qWeight: el('qWeight').value,
+        applyHPhaseCorrection: el('applyHPhaseCorrection').checked
       },
       loadedData,
       bestParams,
@@ -1270,6 +1428,11 @@ function restoreAppState(){
       el('measL').value = state.ui.measL ?? el('measL').value;
       el('measC').value = state.ui.measC ?? el('measC').value;
       el('measApplyMode').value = state.ui.measApplyMode ?? el('measApplyMode').value;
+      el('useQConstraint').checked = !!state.ui.useQConstraint;
+      el('qMeas').value = state.ui.qMeas ?? el('qMeas').value;
+      el('qFreq').value = state.ui.qFreq ?? el('qFreq').value;
+      el('qWeight').value = state.ui.qWeight ?? el('qWeight').value;
+      el('applyHPhaseCorrection').checked = !!state.ui.applyHPhaseCorrection;
       updateFocusLabel();
     }
 
@@ -1284,8 +1447,9 @@ function restoreAppState(){
     }
 
     if(bestParams && loadedData && freq.length){
-      if(!fitMeta){
-        fitMeta = buildFitMeta(loadedData);
+      fitMeta = buildFitMeta(loadedData);
+      if(state.fitMeta && state.fitMeta.cBoundsInfo){
+        fitMeta.cBoundsInfo = state.fitMeta.cBoundsInfo;
       }
 
       redrawAll();
