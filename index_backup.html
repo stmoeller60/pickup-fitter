@@ -189,7 +189,7 @@ New: A known measurement load can now be included during the fit only. This allo
           Model:<br>
           <b>Generator → (Rdc + jωL) → Output</b><br>
           From output to ground:<br>
-          <b>Rp ∥ C ∥ (Re + jωLe)</b>
+          <b>Rp ∥ (Rc + 1/(jωC)) ∥ (Re + jωLe)</b>
         </div>
       </div>
 
@@ -224,6 +224,7 @@ New: A known measurement load can now be included during the fit only. This allo
         <div class="field"><label>Q weight</label><input id="qWeight" type="number" value="0.25" step="0.001"></div>
         <div class="small">
           Optional soft constraint only. The Q term is added to the total fit error only when enabled and only for valid positive inputs.
+          Q is evaluated from the full model input impedance at f_meas and therefore includes Rc automatically.
         </div>
       </div>
 
@@ -267,6 +268,10 @@ New: A known measurement load can now be included during the fit only. This allo
         <div class="row">
           <div class="field"><label>C min [pF]</label><input id="cMin" type="number" value="50" step="0.1"></div>
           <div class="field"><label>C max [pF]</label><input id="cMax" type="number" value="500" step="0.1"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Rc min [Ω]</label><input id="rcMin" type="number" value="0.1" step="0.1"></div>
+          <div class="field"><label>Rc max [Ω]</label><input id="rcMax" type="number" value="50000" step="0.1"></div>
         </div>
         <div class="row">
           <div class="field"><label>Rdc min [Ω]</label><input id="rdcMin" type="number" value="1000"></div>
@@ -760,21 +765,20 @@ function buildInternalModel(p,f){
 
   const Zs = complex(p.Rdc, w*p.L);
 
-  const Cp_block = 1.0;
-  const Ce_block = 1.0;
+  let Ysh = complex(0,0);
 
-  let Ysh = complex(0, w * p.C);
+  if(Number.isFinite(p.Rp) && p.Rp > 0){
+    Ysh = add(Ysh, complex(1/p.Rp, 0));
+  }
 
-  const Zcp = complex(0, -1 / (wSafe * Cp_block));
-  const Zrp_branch = add(complex(p.Rp, 0), Zcp);
-  Ysh = add(Ysh, inv(Zrp_branch));
+  const ZcSeries = add(
+    complex(p.Rc, 0),
+    complex(0, -1 / (wSafe * p.C))
+  );
+  Ysh = add(Ysh, inv(ZcSeries));
 
   if(el('useRL').checked){
-    const Zce = complex(0, -1 / (wSafe * Ce_block));
-    const Ze_branch = add(
-      add(complex(p.Re, 0), complex(0, w * p.Le)),
-      Zce
-    );
+    const Ze_branch = add(complex(p.Re, 0), complex(0, w * p.Le));
     Ysh = add(Ysh, inv(Ze_branch));
   }
 
@@ -1081,6 +1085,7 @@ function randomParams(){
     Rp: rand(Number(el('rpMin').value), Number(el('rpMax').value)),
     L: rand(Number(el('lMin').value), Number(el('lMax').value)),
     C: rand(Number(el('cMin').value), Number(el('cMax').value)) * 1e-12,
+    Rc: rand(Number(el('rcMin').value), Number(el('rcMax').value)),
     Rdc: rand(Number(el('rdcMin').value), Number(el('rdcMax').value)),
     Re: rand(Number(el('reMin').value), Number(el('reMax').value)),
     Le: rand(Number(el('leMin').value), Number(el('leMax').value))
@@ -1089,7 +1094,7 @@ function randomParams(){
 
 function mutateParams(p, fine){
   const q = JSON.parse(JSON.stringify(p));
-  const keys = ['Rp','L','C','Rdc','Re','Le'];
+  const keys = ['Rp','L','C','Rc','Rdc','Re','Le'];
   const k = keys[Math.floor(Math.random()*keys.length)];
 
   let scale;
@@ -1103,6 +1108,7 @@ function mutateParams(p, fine){
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
   q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
+  q.Rc = clamp(q.Rc, Number(el('rcMin').value), Number(el('rcMax').value));
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
   q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
   q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
@@ -1115,6 +1121,7 @@ function clampParamsToBounds(p){
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
   q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
+  q.Rc = clamp(q.Rc, Number(el('rcMin').value), Number(el('rcMax').value));
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
   q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
   q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
@@ -1130,6 +1137,7 @@ function makeStartPopulation(){
       q.Rp*=rand(0.92,1.08);
       q.L*=rand(0.96,1.04);
       q.C*=rand(0.92,1.08);
+      q.Rc*=rand(0.85,1.15);
       q.Rdc*=rand(0.96,1.04);
       q.Re*=rand(0.85,1.15);
       q.Le*=rand(0.85,1.15);
@@ -1137,9 +1145,9 @@ function makeStartPopulation(){
     }
   }
 
-  starts.push(clampParamsToBounds({Rp:150000,L:1.7,C:100e-12,Rdc:4300,Re:70000,Le:3.5}));
-  starts.push(clampParamsToBounds({Rp:120000,L:1.5,C:80e-12,Rdc:4000,Re:50000,Le:2.0}));
-  starts.push(clampParamsToBounds({Rp:180000,L:2.0,C:120e-12,Rdc:5000,Re:100000,Le:5.0}));
+  starts.push(clampParamsToBounds({Rp:150000,L:1.7,C:100e-12,Rc:1000,Rdc:4300,Re:70000,Le:3.5}));
+  starts.push(clampParamsToBounds({Rp:120000,L:1.5,C:80e-12,Rc:500,Rdc:4000,Re:50000,Le:2.0}));
+  starts.push(clampParamsToBounds({Rp:180000,L:2.0,C:120e-12,Rc:2000,Rdc:5000,Re:100000,Le:5.0}));
 
   while(starts.length < 80) starts.push(randomParams());
   return starts;
@@ -1292,6 +1300,27 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
   }
 }
 
+function redrawLoadPlot(){
+  if(!bestParams || !loadedData || !freq.length) return;
+
+  const y = loadResponse(bestParams);
+  const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
+  const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
+  const lim = getHPlotLimits();
+
+  drawPlot(
+    el('plot5'),
+    freq,
+    y.map(v=>v+hOffset),
+    null,
+    'H Magnitude with Load',
+    'dB',
+    false,
+    lim.min,
+    lim.max
+  );
+}
+
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
 
@@ -1352,6 +1381,8 @@ function redrawAll(){
     'deg',
     false
   );
+
+  redrawLoadPlot();
 }
 
 function loadResponse(p){
@@ -1400,6 +1431,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     Rp: +bestParams.Rp.toFixed(3),
     L_H: +bestParams.L.toFixed(6),
     C_pF: +(bestParams.C*1e12).toFixed(3),
+    Rc: +bestParams.Rc.toFixed(3),
     Rdc: +bestParams.Rdc.toFixed(3),
     Re: +bestParams.Re.toFixed(3),
     Le_H: +bestParams.Le.toFixed(6),
@@ -1428,6 +1460,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     Q_model: Number.isFinite(Q_model) ? +Q_model.toFixed(6) : null,
     Q_weight: qc.enabled && Number.isFinite(qc.Q_weight) ? +qc.Q_weight.toFixed(6) : null,
     h_phase_correction_deg: fitMeta && Number.isFinite(fitMeta.hPhaseCorrectionDeg) ? fitMeta.hPhaseCorrectionDeg : 0,
+    q_definition: "Q = abs(Im(Zin)) / Re(Zin) at f_meas using full current model",
     post_fit_plots_1_to_4_show_fit_condition: true,
     plot5_uses_pure_internal_model_only: true,
     additional_RL_LL_CL_load_is_separate_from_measurement_load: true
@@ -1446,6 +1479,8 @@ function saveAppState(){
         lMax: el('lMax').value,
         cMin: el('cMin').value,
         cMax: el('cMax').value,
+        rcMin: el('rcMin').value,
+        rcMax: el('rcMax').value,
         rdcMin: el('rdcMin').value,
         rdcMax: el('rdcMax').value,
         reMin: el('reMin').value,
@@ -1500,6 +1535,8 @@ function restoreAppState(){
       el('lMax').value = state.ui.lMax ?? el('lMax').value;
       el('cMin').value = state.ui.cMin ?? el('cMin').value;
       el('cMax').value = state.ui.cMax ?? el('cMax').value;
+      el('rcMin').value = state.ui.rcMin ?? el('rcMin').value;
+      el('rcMax').value = state.ui.rcMax ?? el('rcMax').value;
       el('rdcMin').value = state.ui.rdcMin ?? el('rdcMin').value;
       el('rdcMax').value = state.ui.rdcMax ?? el('rdcMax').value;
       el('reMin').value = state.ui.reMin ?? el('reMin').value;
@@ -1537,6 +1574,9 @@ function restoreAppState(){
     }
 
     if(bestParams && loadedData && freq.length){
+      bestParams = clampParamsToBounds(bestParams);
+      lastFitParams = lastFitParams ? clampParamsToBounds(lastFitParams) : lastFitParams;
+
       fitMeta = buildFitMeta(loadedData);
       if(state.fitMeta && state.fitMeta.cBoundsInfo){
         fitMeta.cBoundsInfo = state.fitMeta.cBoundsInfo;
@@ -1548,12 +1588,6 @@ function restoreAppState(){
         buildParamsReport(bestParams, bestObjective, fitMeta),
         null, 2
       );
-
-      const y = loadResponse(bestParams);
-      const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
-      const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
-      const lim = getHPlotLimits();
-      drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
     }
 
     setStatus('Previous state restored.');
@@ -1657,11 +1691,7 @@ async function runFit(){
 
 function calcLoad(){
   if(!bestParams){ setStatus('Run a fit first.'); return; }
-  const y = loadResponse(bestParams);
-  const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
-  const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
-  const lim = getHPlotLimits();
-  drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
+  redrawLoadPlot();
   setStatus('Loaded H magnitude calculated from pure fitted pickup model.');
   saveAppState();
 }
@@ -1684,9 +1714,32 @@ function resetFitMemory(){
   });
 }
 
+function redrawIfPossible(){
+  if(bestParams && loadedData && freq.length){
+    redrawAll();
+    el('paramsOut').textContent = JSON.stringify(
+      buildParamsReport(bestParams, bestObjective, fitMeta || buildFitMeta(loadedData)),
+      null, 2
+    );
+  }
+}
+
 el('fitBtn').addEventListener('click', runFit);
 el('loadBtn').addEventListener('click', calcLoad);
 el('resetBtn').addEventListener('click', resetFitMemory);
+
+['hMin','hMax','loadR','loadL','loadC'].forEach(id => {
+  el(id).addEventListener('input', () => {
+    if(bestParams && loadedData && freq.length){
+      redrawAll();
+      saveAppState();
+    }
+  });
+});
+
+['useRL','weightH','useMeasLoad','measR','measL','measC','measApplyMode','useQConstraint','qMeas','qFreq','qWeight','applyHPhaseCorrection','formFocus','lowAnchorHz','rpMin','rpMax','lMin','lMax','cMin','cMax','rcMin','rcMax','rdcMin','rdcMax','reMin','reMax','leMin','leMax'].forEach(id => {
+  el(id).addEventListener('change', saveAppState);
+});
 
 restoreAppState();
 
