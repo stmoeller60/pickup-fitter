@@ -258,6 +258,23 @@
       </div>
 
       <div class="panel">
+        <h2>Fit Control</h2>
+        <div class="row">
+          <div class="field"><label>Target Error</label><input id="targetError" type="number" value="0.50" step="0.0001"></div>
+          <div class="field"><label>Max Iterations per Start</label><input id="maxIterPerStart" type="number" value="400" step="1"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Stall Limit</label><input id="stallLimit" type="number" value="120" step="1"></div>
+          <div class="field"><label>Min Improvement</label><input id="minImprovement" type="number" value="0.0005" step="0.000001"></div>
+        </div>
+        <div class="small">
+          Adaptive stop control for each start point. The fit continues while meaningful improvements occur, and stops when the
+          target error is reached, the stall limit is exceeded, or the maximum iteration count per start is reached.
+          Internally, the mutation strength is reduced in multiple refinement stages: coarse → medium → fine → very fine.
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Bounds / Ranges</h2>
         <div class="row">
           <div class="field"><label>Rp min [Ω]</label><input id="rpMin" type="number" value="10000"></div>
@@ -737,6 +754,25 @@ function getQConstraintSettings(){
   };
 }
 
+function getFitControlSettings(){
+  let targetError = Number(el('targetError').value);
+  let maxIterPerStart = Math.round(Number(el('maxIterPerStart').value));
+  let stallLimit = Math.round(Number(el('stallLimit').value));
+  let minImprovement = Number(el('minImprovement').value);
+
+  if(!Number.isFinite(targetError) || targetError < 0) targetError = 0.5;
+  if(!Number.isFinite(maxIterPerStart) || maxIterPerStart < 1) maxIterPerStart = 400;
+  if(!Number.isFinite(stallLimit) || stallLimit < 1) stallLimit = 120;
+  if(!Number.isFinite(minImprovement) || minImprovement < 0) minImprovement = 0.0005;
+
+  return {
+    targetError,
+    maxIterPerStart,
+    stallLimit,
+    minImprovement
+  };
+}
+
 function getHPhaseCorrectionDeg(){
   return el('applyHPhaseCorrection').checked ? -90 : 0;
 }
@@ -1016,6 +1052,8 @@ function buildFitMeta(data){
     cBoundsInfo: null,
     measSettings: getMeasurementLoadSettings(),
     qConstraint: getQConstraintSettings(),
+    fitControl: getFitControlSettings(),
+    fitRunInfo: null,
     hPhaseCorrectionDeg
   };
 }
@@ -1188,16 +1226,36 @@ function randomParams(){
   };
 }
 
-function mutateParams(p, fine){
+function getPhaseForIteration(iter, maxIter){
+  const ratio = maxIter > 0 ? iter / maxIter : 1;
+
+  if(ratio < 0.35){
+    return { name:'coarse', factor:1.00, randomRestartEvery:45, randomRestartProb:0.22 };
+  }
+  if(ratio < 0.65){
+    return { name:'medium', factor:0.45, randomRestartEvery:65, randomRestartProb:0.10 };
+  }
+  if(ratio < 0.88){
+    return { name:'fine', factor:0.18, randomRestartEvery:0, randomRestartProb:0 };
+  }
+  return { name:'very_fine', factor:0.07, randomRestartEvery:0, randomRestartProb:0 };
+}
+
+function mutateParams(p, mutationFactor = 1){
   const q = JSON.parse(JSON.stringify(p));
   const keys = ['Rp','L','C2','Rdc','split','C1Factor','Re1','Le1','Re2Scale','Le2Scale','Cb1Factor','Cb2Factor'];
   const k = keys[Math.floor(Math.random()*keys.length)];
 
+  const mf = clamp(mutationFactor, 0.02, 3.0);
+
   let scale;
-  if(Math.random() < 0.15){
-    scale = rand(0.3, 3.0);
+  const occasionalWideJump = Math.random() < (0.12 * Math.max(0.35, Math.min(1.0, mf)));
+  if(occasionalWideJump){
+    const span = clamp(0.55 * mf, 0.03, 0.95);
+    scale = rand(Math.max(0.18, 1 - span), 1 + span);
   } else {
-    scale = fine ? rand(0.96, 1.04) : rand(0.82, 1.18);
+    const span = clamp(0.18 * mf, 0.006, 0.40);
+    scale = rand(Math.max(0.60, 1 - span), 1 + span);
   }
 
   q[k] *= scale;
@@ -1569,6 +1627,8 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
 
   const meas = fitMeta && fitMeta.measSettings ? fitMeta.measSettings : getMeasurementLoadSettings();
   const qc = fitMeta && fitMeta.qConstraint ? fitMeta.qConstraint : getQConstraintSettings();
+  const fc = fitMeta && fitMeta.fitControl ? fitMeta.fitControl : getFitControlSettings();
+  const runInfo = fitMeta && fitMeta.fitRunInfo ? fitMeta.fitRunInfo : null;
 
   let Q_model = null;
   let objective_q_term = null;
@@ -1579,7 +1639,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
     Number.isFinite(qc.Q_weight)
   ){
-    Q_model = computeModelQAtFrequency(bestParams, qc.f_meas);
+    const Q_model = computeModelQAtFrequency(bestParams, qc.f_meas);
     if(Number.isFinite(Q_model)){
       objective_q_term = qc.Q_weight * sq(Q_model - qc.Q_meas);
     }
@@ -1639,6 +1699,23 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     Q_model: Number.isFinite(Q_model) ? +Q_model.toFixed(6) : null,
     Q_weight: qc.enabled && Number.isFinite(qc.Q_weight) ? +qc.Q_weight.toFixed(6) : null,
     h_phase_correction_deg: fitMeta && Number.isFinite(fitMeta.hPhaseCorrectionDeg) ? fitMeta.hPhaseCorrectionDeg : 0,
+
+    target_error: +fc.targetError.toFixed(6),
+    max_iterations_per_start: fc.maxIterPerStart,
+    stall_limit: fc.stallLimit,
+    min_improvement: +fc.minImprovement.toFixed(6),
+    multi_stage_fit_active: true,
+    refinement_stages: ['coarse','medium','fine','very_fine'],
+
+    fit_stop_reason: runInfo ? runInfo.best_start_stop_reason : null,
+    fit_best_start_index: runInfo ? runInfo.best_start_index : null,
+    fit_best_iteration_in_start: runInfo ? runInfo.best_iteration_in_start : null,
+    fit_best_phase: runInfo ? runInfo.best_phase : null,
+    fit_best_error_seen: runInfo && Number.isFinite(runInfo.best_error_seen) ? +runInfo.best_error_seen.toFixed(6) : null,
+    fit_iterations_used_in_best_start: runInfo ? runInfo.best_start_iterations_used : null,
+    fit_stall_count_at_best_start_end: runInfo ? runInfo.best_start_final_stall_count : null,
+    fit_total_starts: runInfo ? runInfo.total_starts : null,
+
     q_definition: "Q = abs(Im(Zin)) / Re(Zin) at f_meas using full distributed current model",
     post_fit_plots_1_to_4_show_fit_condition: true,
     plot5_uses_pure_internal_model_only: true,
@@ -1652,6 +1729,11 @@ function saveAppState(){
       ui: {
         formFocus: el('formFocus').value,
         lowAnchorHz: el('lowAnchorHz').value,
+
+        targetError: el('targetError').value,
+        maxIterPerStart: el('maxIterPerStart').value,
+        stallLimit: el('stallLimit').value,
+        minImprovement: el('minImprovement').value,
 
         rpMin: el('rpMin').value,
         rpMax: el('rpMax').value,
@@ -1725,6 +1807,11 @@ function restoreAppState(){
       el('formFocus').value = state.ui.formFocus ?? el('formFocus').value;
       el('lowAnchorHz').value = state.ui.lowAnchorHz ?? el('lowAnchorHz').value;
 
+      el('targetError').value = state.ui.targetError ?? el('targetError').value;
+      el('maxIterPerStart').value = state.ui.maxIterPerStart ?? el('maxIterPerStart').value;
+      el('stallLimit').value = state.ui.stallLimit ?? el('stallLimit').value;
+      el('minImprovement').value = state.ui.minImprovement ?? el('minImprovement').value;
+
       el('rpMin').value = state.ui.rpMin ?? el('rpMin').value;
       el('rpMax').value = state.ui.rpMax ?? el('rpMax').value;
       el('lMin').value = state.ui.lMin ?? el('lMin').value;
@@ -1785,9 +1872,14 @@ function restoreAppState(){
     }
 
     if(bestParams && loadedData && freq.length){
+      const savedFitMeta = state.fitMeta || null;
+
       fitMeta = buildFitMeta(loadedData);
-      if(state.fitMeta && state.fitMeta.cBoundsInfo){
-        fitMeta.cBoundsInfo = state.fitMeta.cBoundsInfo;
+      if(savedFitMeta && savedFitMeta.cBoundsInfo){
+        fitMeta.cBoundsInfo = savedFitMeta.cBoundsInfo;
+      }
+      if(savedFitMeta && savedFitMeta.fitRunInfo){
+        fitMeta.fitRunInfo = savedFitMeta.fitRunInfo;
       }
 
       redrawAll();
@@ -1808,6 +1900,27 @@ function restoreAppState(){
 
 function clearAppState(){
   localStorage.removeItem('pickupFitterState');
+}
+
+function buildFitStatusPrefix(meta){
+  const parts = ['Fit running ...'];
+
+  const meas = meta ? meta.measSettings : null;
+  if(meas && meas.enabled){
+    parts.push(`measurement load active (${meas.mode === 'hOnly' ? 'H only' : 'H and Z'})`);
+  }
+
+  if(meta && meta.cBoundsInfo && meta.cBoundsInfo.applied){
+    parts.push(`resonance-guided C2 bounds ${meta.cBoundsInfo.cMin_pF.toFixed(1)}...${meta.cBoundsInfo.cMax_pF.toFixed(1)} pF`);
+  }
+
+  return parts.join(' | ');
+}
+
+function maybeUpdateFitStatus(prefix, startIndex, totalStarts, phaseName, iter, maxIter, currentBest, currentStartError){
+  setStatus(
+    `${prefix} | start ${startIndex}/${totalStarts} | phase ${phaseName} | iter ${iter}/${maxIter} | start err ${currentStartError.toFixed(6)} | best ${currentBest.toFixed(6)}`
+  );
 }
 
 async function runFit(){
@@ -1836,52 +1949,160 @@ async function runFit(){
     const cBoundsInfo = applyResonanceGuidedCBounds(fitMeta);
     fitMeta.cBoundsInfo = cBoundsInfo;
 
+    const fitControl = getFitControlSettings();
+    fitMeta.fitControl = fitControl;
+
     let best = null;
     let bestE = 1e99;
     const starts = makeStartPopulation();
-    const iters = 260;
 
-    const meas = fitMeta.measSettings;
-    let baseStatus = 'Fit running ...';
-    if(meas && meas.enabled){
-      baseStatus = `Fit running ... measurement load active (${meas.mode === 'hOnly' ? 'H only' : 'H and Z'})`;
-    }
+    let bestRunInfo = {
+      total_starts: starts.length,
+      best_start_index: null,
+      best_iteration_in_start: null,
+      best_phase: null,
+      best_error_seen: null,
+      best_start_stop_reason: null,
+      best_start_iterations_used: null,
+      best_start_final_stall_count: null
+    };
 
-    if(cBoundsInfo.applied){
-      setStatus(`${baseStatus} | resonance-guided C2 bounds applied (${cBoundsInfo.cMin_pF.toFixed(1)} pF ... ${cBoundsInfo.cMax_pF.toFixed(1)} pF)`);
-    } else {
-      setStatus(baseStatus);
-    }
+    const baseStatus = buildFitStatusPrefix(fitMeta);
+    setStatus(baseStatus);
 
     for(let s=0; s<starts.length; s++){
       let p = JSON.parse(JSON.stringify(starts[s]));
       let e = errorOf(p, fitMeta);
 
-      if(e < bestE){ best = JSON.parse(JSON.stringify(p)); bestE = e; }
+      let iter = 0;
+      let stallCount = 0;
+      let terminationReason = 'max_iterations_per_start';
 
-      for(let i=0;i<iters;i++){
-        if(i % 40 === 0 && Math.random() < 0.3){
-          p = randomParams();
-          e = errorOf(p, fitMeta);
-        }
-
-        const q = mutateParams(p, i < iters*0.7);
-        const eq = errorOf(q, fitMeta);
-        if(eq < e){ p = q; e = eq; }
-        if(eq < bestE){ best = JSON.parse(JSON.stringify(q)); bestE = eq; }
+      if(e < bestE){
+        best = JSON.parse(JSON.stringify(p));
+        bestE = e;
+        bestRunInfo.best_start_index = s + 1;
+        bestRunInfo.best_iteration_in_start = 0;
+        bestRunInfo.best_phase = 'initial';
+        bestRunInfo.best_error_seen = e;
       }
 
-      if(cBoundsInfo.applied){
-        setStatus(`${baseStatus} | start ${s+1}/${starts.length} | C2 bounds ${cBoundsInfo.cMin_pF.toFixed(1)}...${cBoundsInfo.cMax_pF.toFixed(1)} pF`);
+      if(e <= fitControl.targetError){
+        terminationReason = 'target_error';
       } else {
-        setStatus(`${baseStatus} | start ${s+1}/${starts.length}`);
+        while(iter < fitControl.maxIterPerStart){
+          iter++;
+
+          const phase = getPhaseForIteration(iter - 1, fitControl.maxIterPerStart);
+
+          if(
+            phase.randomRestartEvery > 0 &&
+            iter % phase.randomRestartEvery === 0 &&
+            Math.random() < phase.randomRestartProb
+          ){
+            const exploratory = Math.random() < 0.5
+              ? randomParams()
+              : mutateParams(best || p, Math.max(0.9, phase.factor * 1.25));
+
+            const exploratoryError = errorOf(exploratory, fitMeta);
+            if(exploratoryError < e){
+              const improvement = e - exploratoryError;
+              p = exploratory;
+              e = exploratoryError;
+              if(improvement > fitControl.minImprovement){
+                stallCount = 0;
+              } else {
+                stallCount++;
+              }
+            } else {
+              stallCount++;
+            }
+
+            if(exploratoryError < bestE){
+              best = JSON.parse(JSON.stringify(exploratory));
+              bestE = exploratoryError;
+              bestRunInfo.best_start_index = s + 1;
+              bestRunInfo.best_iteration_in_start = iter;
+              bestRunInfo.best_phase = phase.name;
+              bestRunInfo.best_error_seen = exploratoryError;
+            }
+
+            if(e <= fitControl.targetError){
+              terminationReason = 'target_error';
+              break;
+            }
+            if(stallCount >= fitControl.stallLimit){
+              terminationReason = 'stall_limit';
+              break;
+            }
+          }
+
+          const q = mutateParams(p, phase.factor);
+          const eq = errorOf(q, fitMeta);
+
+          if(eq < e){
+            const improvement = e - eq;
+            p = q;
+            e = eq;
+
+            if(improvement > fitControl.minImprovement){
+              stallCount = 0;
+            } else {
+              stallCount++;
+            }
+          } else {
+            stallCount++;
+          }
+
+          if(eq < bestE){
+            best = JSON.parse(JSON.stringify(q));
+            bestE = eq;
+            bestRunInfo.best_start_index = s + 1;
+            bestRunInfo.best_iteration_in_start = iter;
+            bestRunInfo.best_phase = phase.name;
+            bestRunInfo.best_error_seen = eq;
+          }
+
+          if(iter === 1 || iter % 20 === 0 || eq < bestE){
+            maybeUpdateFitStatus(baseStatus, s+1, starts.length, phase.name, iter, fitControl.maxIterPerStart, bestE, e);
+            await new Promise(r => setTimeout(r, 0));
+          }
+
+          if(e <= fitControl.targetError){
+            terminationReason = 'target_error';
+            break;
+          }
+
+          if(stallCount >= fitControl.stallLimit){
+            terminationReason = 'stall_limit';
+            break;
+          }
+        }
       }
+
+      if(bestRunInfo.best_start_index === s + 1){
+        bestRunInfo.best_start_stop_reason = terminationReason;
+        bestRunInfo.best_start_iterations_used = iter;
+        bestRunInfo.best_start_final_stall_count = stallCount;
+      }
+
+      maybeUpdateFitStatus(
+        baseStatus,
+        s+1,
+        starts.length,
+        getPhaseForIteration(Math.max(0, Math.min(iter, fitControl.maxIterPerStart)-1), fitControl.maxIterPerStart).name,
+        iter,
+        fitControl.maxIterPerStart,
+        bestE,
+        e
+      );
       await new Promise(r => setTimeout(r, 0));
     }
 
     bestParams = best;
     bestObjective = bestE;
-    lastFitParams = JSON.parse(JSON.stringify(best));
+    lastFitParams = best ? JSON.parse(JSON.stringify(best)) : null;
+    fitMeta.fitRunInfo = bestRunInfo;
 
     el('paramsOut').textContent = JSON.stringify(
       buildParamsReport(bestParams, bestObjective, fitMeta),
@@ -1889,7 +2110,7 @@ async function runFit(){
     );
 
     redrawAll();
-    setStatus('Fit finished.');
+    setStatus(`Fit finished. Best error: ${bestE.toFixed(6)}.`);
     saveAppState();
   } catch(err){
     console.error(err);
@@ -1924,9 +2145,16 @@ function resetFitMemory(){
 
 function redrawIfPossible(){
   if(bestParams && loadedData && freq.length){
+    const savedCInfo = fitMeta && fitMeta.cBoundsInfo ? fitMeta.cBoundsInfo : null;
+    const savedRunInfo = fitMeta && fitMeta.fitRunInfo ? fitMeta.fitRunInfo : null;
+
+    fitMeta = buildFitMeta(loadedData);
+    if(savedCInfo) fitMeta.cBoundsInfo = savedCInfo;
+    if(savedRunInfo) fitMeta.fitRunInfo = savedRunInfo;
+
     redrawAll();
     el('paramsOut').textContent = JSON.stringify(
-      buildParamsReport(bestParams, bestObjective, fitMeta || buildFitMeta(loadedData)),
+      buildParamsReport(bestParams, bestObjective, fitMeta),
       null, 2
     );
   }
@@ -1951,6 +2179,7 @@ el('resetBtn').addEventListener('click', resetFitMemory);
   'useQConstraint','qMeas','qFreq','qWeight',
   'applyHPhaseCorrection',
   'formFocus','lowAnchorHz',
+  'targetError','maxIterPerStart','stallLimit','minImprovement',
   'rpMin','rpMax','lMin','lMax','cMin','cMax','rdcMin','rdcMax',
   'splitMin','splitMax','c1FactorMin','c1FactorMax',
   'reMin','reMax','leMin','leMax',
