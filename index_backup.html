@@ -26,7 +26,7 @@
     color:var(--text);
   }
   .wrap{
-    max-width:1220px;
+    max-width:1320px;
     margin:0 auto;
     padding:14px;
   }
@@ -39,7 +39,7 @@
   }
   .layout{
     display:grid;
-    grid-template-columns:380px 1fr;
+    grid-template-columns:420px 1fr;
     gap:12px;
   }
   .panel{
@@ -70,6 +70,7 @@
   }
   input[type="range"]{ padding:0; }
   .row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
   .checkline{
     display:flex;
     align-items:center;
@@ -101,7 +102,7 @@
     padding:10px;
     color:var(--green);
     font-size:12px;
-    min-height:150px;
+    min-height:180px;
   }
   .plots{
     display:grid;
@@ -146,7 +147,7 @@
     font-size:12px;
     font-weight:700;
   }
-  @media (max-width:920px){
+  @media (max-width:980px){
     .layout{ grid-template-columns:1fr; }
     .plots{ grid-template-columns:1fr; gap:8px; }
     canvas{ height:180px; }
@@ -157,15 +158,9 @@
 <div class="wrap">
   <h1>Pickup Model Fitter</h1>
   <div class="sub">
-    Loads 1 to 4 TXT files. The fit uses only the curves that are present. The additional load is never included in the fit itself, but is applied to the model afterwards only.
-New: Shape Focus blends between physical weighting and local peak/dip shape fidelity. In addition, a pure display offset is calculated for the H magnitude 
-after fitting, so the shape remains unchanged and only the level is adjusted.
-New: The capacitance C is no longer searched freely over a wide range, but is automatically constrained based on the detected resonance frequency. 
-Using the physical relation between resonance frequency, inductance, and capacitance, a plausible range for C is derived from the measured peak and the current L bounds.
-
-This improves fit stability, prevents non-physical solutions, and leads to more consistent and reproducible results, while keeping the overall model and fitting strategy unchanged.
-
-New: A known measurement load can now be included during the fit only. This allows reconstruction of the internal pickup model even when H and optionally Z were measured under a real interface input load such as Rin and Cin. The measurement load is removed completely after fitting. Any later RL/LL/CL load simulation always uses the pure identified internal pickup model only.
+    Loads 1 to 4 TXT files. The fit uses only the curves that are present. The additional load is never included in the fit itself, but is applied to the model afterwards only.<br>
+    New model: distributed two-stage winding model with two series sections and two capacitively coupled RL loss branches. The existing app structure, plot logic, save/restore, measurement load during fit, optional Q constraint, H phase correction, H magnitude display limits and localStorage behaviour are preserved.<br>
+    The resonance-guided capacitance bounds continue to work, but now they act on the <b>main output capacitance Cmain</b> of the dominant resonance path only. The two block capacitors <b>Cb1</b> and <b>Cb2</b> remain separate coupled fit parameters and are <b>not</b> derived directly from the resonance formula.
   </div>
 
   <div class="layout">
@@ -183,13 +178,19 @@ New: A known measurement load can now be included during the fit only. This allo
 
       <div class="panel">
         <h2>Model</h2>
-        <div class="checkline"><input id="useRL" type="checkbox" checked><span>RL branch active</span></div>
+        <div class="checkline"><input id="useRL" type="checkbox" checked><span>Capacitively coupled RL loss branches active</span></div>
         <div class="checkline"><input id="weightH" type="checkbox" checked><span>Weight H more strongly</span></div>
         <div class="small">
           Model:<br>
-          <b>Generator → (Rdc + jωL) → Output</b><br>
-          From output to ground:<br>
-          <b>Rp ∥ (Rc + 1/(jωC)) ∥ (Re + jωLe)</b>
+          <b>Generator → (Rdc1 + jωL1) → Node1 → (Rdc2 + jωL2) → Output</b><br>
+          Node1 to ground:<br>
+          <b>Cb1 in series with (Re1 + jωLe1)</b><br>
+          Output to ground:<br>
+          <b>Cmain ∥ Rp ∥ [Cb2 in series with (Re2 + jωLe2)]</b><br><br>
+          Coupled parameterization used for fit stability:<br>
+          <b>L1/L2</b> and <b>Rdc1/Rdc2</b> are derived from total <b>L</b>, total <b>Rdc</b> and a split parameter.<br>
+          <b>Re2</b> and <b>Le2</b> are derived from the base branch by one scale factor.<br>
+          <b>Cb1</b> and <b>Cb2</b> are derived from <b>Cmain</b> by separate ratio parameters.
         </div>
       </div>
 
@@ -224,7 +225,7 @@ New: A known measurement load can now be included during the fit only. This allo
         <div class="field"><label>Q weight</label><input id="qWeight" type="number" value="0.25" step="0.001"></div>
         <div class="small">
           Optional soft constraint only. The Q term is added to the total fit error only when enabled and only for valid positive inputs.
-          Q is evaluated from the full model input impedance at f_meas and therefore includes Rc automatically.
+          Q is evaluated from the <b>full current two-stage model input impedance</b> at f_meas.
         </div>
       </div>
 
@@ -257,33 +258,55 @@ New: A known measurement load can now be included during the fit only. This allo
 
       <div class="panel">
         <h2>Bounds / Ranges</h2>
+
         <div class="row">
           <div class="field"><label>Rp min [Ω]</label><input id="rpMin" type="number" value="10000"></div>
           <div class="field"><label>Rp max [Ω]</label><input id="rpMax" type="number" value="2000000"></div>
         </div>
+
         <div class="row">
-          <div class="field"><label>L min [H]</label><input id="lMin" type="number" value="1" step="0.01"></div>
-          <div class="field"><label>L max [H]</label><input id="lMax" type="number" value="10" step="0.01"></div>
+          <div class="field"><label>L total min [H]</label><input id="lMin" type="number" value="1" step="0.01"></div>
+          <div class="field"><label>L total max [H]</label><input id="lMax" type="number" value="10" step="0.01"></div>
         </div>
+
         <div class="row">
-          <div class="field"><label>C min [pF]</label><input id="cMin" type="number" value="50" step="0.1"></div>
-          <div class="field"><label>C max [pF]</label><input id="cMax" type="number" value="500" step="0.1"></div>
+          <div class="field"><label>Cmain min [pF]</label><input id="cMin" type="number" value="50" step="0.1"></div>
+          <div class="field"><label>Cmain max [pF]</label><input id="cMax" type="number" value="500" step="0.1"></div>
         </div>
+
         <div class="row">
-          <div class="field"><label>Rc min [Ω]</label><input id="rcMin" type="number" value="0.1" step="0.1"></div>
-          <div class="field"><label>Rc max [Ω]</label><input id="rcMax" type="number" value="50000" step="0.1"></div>
+          <div class="field"><label>Rdc total min [Ω]</label><input id="rdcMin" type="number" value="1000"></div>
+          <div class="field"><label>Rdc total max [Ω]</label><input id="rdcMax" type="number" value="20000"></div>
         </div>
+
         <div class="row">
-          <div class="field"><label>Rdc min [Ω]</label><input id="rdcMin" type="number" value="1000"></div>
-          <div class="field"><label>Rdc max [Ω]</label><input id="rdcMax" type="number" value="20000"></div>
+          <div class="field"><label>Re base min [Ω]</label><input id="reMin" type="number" value="100"></div>
+          <div class="field"><label>Re base max [Ω]</label><input id="reMax" type="number" value="200000"></div>
         </div>
+
         <div class="row">
-          <div class="field"><label>Re min [Ω]</label><input id="reMin" type="number" value="100"></div>
-          <div class="field"><label>Re max [Ω]</label><input id="reMax" type="number" value="200000"></div>
+          <div class="field"><label>Le base min [H]</label><input id="leMin" type="number" value="0.001" step="0.001"></div>
+          <div class="field"><label>Le base max [H]</label><input id="leMax" type="number" value="10" step="0.01"></div>
         </div>
+
         <div class="row">
-          <div class="field"><label>Le min [H]</label><input id="leMin" type="number" value="0.001" step="0.001"></div>
-          <div class="field"><label>Le max [H]</label><input id="leMax" type="number" value="10" step="0.01"></div>
+          <div class="field"><label>Split min [0..1]</label><input id="splitMin" type="number" value="0.20" step="0.01"></div>
+          <div class="field"><label>Split max [0..1]</label><input id="splitMax" type="number" value="0.80" step="0.01"></div>
+        </div>
+
+        <div class="row">
+          <div class="field"><label>Loss2 scale min</label><input id="loss2Min" type="number" value="0.35" step="0.01"></div>
+          <div class="field"><label>Loss2 scale max</label><input id="loss2Max" type="number" value="3.00" step="0.01"></div>
+        </div>
+
+        <div class="row">
+          <div class="field"><label>Cb1/Cmain min</label><input id="cb1RatioMin" type="number" value="0.05" step="0.01"></div>
+          <div class="field"><label>Cb1/Cmain max</label><input id="cb1RatioMax" type="number" value="4.00" step="0.01"></div>
+        </div>
+
+        <div class="row">
+          <div class="field"><label>Cb2/Cmain min</label><input id="cb2RatioMin" type="number" value="0.05" step="0.01"></div>
+          <div class="field"><label>Cb2/Cmain max</label><input id="cb2RatioMax" type="number" value="4.00" step="0.01"></div>
         </div>
       </div>
 
@@ -352,6 +375,8 @@ el('formFocus').addEventListener('input', updateFocusLabel);
 
 function complex(r,i){ return {r:r, i:i}; }
 function add(a,b){ return {r:a.r+b.r, i:a.i+b.i}; }
+function sub(a,b){ return {r:a.r-b.r, i:a.i-b.i}; }
+function mul(a,b){ return {r:a.r*b.r - a.i*b.i, i:a.r*b.i + a.i*b.r}; }
 function inv(z){
   const d = z.r*z.r + z.i*z.i;
   if(d === 0) return {r:1e30, i:0};
@@ -359,6 +384,7 @@ function inv(z){
 }
 function div(a,b){
   const d = b.r*b.r + b.i*b.i;
+  if(d === 0) return {r:1e30, i:0};
   return {r:(a.r*b.r + a.i*b.i)/d, i:(a.i*b.r - a.r*b.i)/d};
 }
 function absC(z){ return Math.hypot(z.r,z.i); }
@@ -691,14 +717,14 @@ function applyResonanceGuidedCBounds(meta){
   if(!cInfo){
     return {
       applied:false,
-      reason:'Could not derive plausible C bounds from resonance.'
+      reason:'Could not derive plausible Cmain bounds from resonance.'
     };
   }
 
   if(cInfo.cMin_pF < 1 || cInfo.cMax_pF > 2000){
     return {
       applied:false,
-      reason:'Derived C bounds outside allowed safety range.'
+      reason:'Derived Cmain bounds outside allowed safety range.'
     };
   }
 
@@ -707,6 +733,7 @@ function applyResonanceGuidedCBounds(meta){
 
   return {
     applied:true,
+    interpretation:'Bounds applied to Cmain only; Cb1 and Cb2 remain separate ratio-based fit parameters.',
     ...cInfo
   };
 }
@@ -759,74 +786,157 @@ function admittanceIsZero(Y){
   return Math.abs(Y.r) < 1e-30 && Math.abs(Y.i) < 1e-30;
 }
 
-function buildInternalModel(p,f){
+function seriesCapImpedance(f, C){
   const w = 2*Math.PI*f;
-  const wSafe = Math.max(w, 1e-12);
-
-  const Zs = complex(p.Rdc, w*p.L);
-
-  let Ysh = complex(0,0);
-
-  if(Number.isFinite(p.Rp) && p.Rp > 0){
-    Ysh = add(Ysh, complex(1/p.Rp, 0));
-  }
-
-  const ZcSeries = add(
-    complex(p.Rc, 0),
-    complex(0, -1 / (wSafe * p.C))
-  );
-  Ysh = add(Ysh, inv(ZcSeries));
-
-  if(el('useRL').checked){
-    const Ze_branch = add(complex(p.Re, 0), complex(0, w * p.Le));
-    Ysh = add(Ysh, inv(Ze_branch));
-  }
-
-  const Zsh = inv(Ysh);
-  return { Zs, Zsh };
+  const wSafe = Math.max(w, 1e-30);
+  if(!Number.isFinite(C) || C <= 0) return complex(1e30, 0);
+  return complex(0, -1 / (wSafe * C));
 }
 
-function applyParallelLoadToZsh(Zsh, loadY){
-  if(admittanceIsZero(loadY)) return Zsh;
-  return inv(add(inv(Zsh), loadY));
-}
+function deriveStageParams(p){
+  const split = clamp(p.split, 0.01, 0.99);
 
-function modelPure(p,f){
-  const internal = buildInternalModel(p,f);
-  const H = div(internal.Zsh, add(internal.Zs, internal.Zsh));
-  const Zin = inv(add(inv(internal.Zs), inv(internal.Zsh)));
+  const L1 = p.L * split;
+  const L2 = p.L * (1 - split);
+
+  const Rdc1 = p.Rdc * split;
+  const Rdc2 = p.Rdc * (1 - split);
+
+  const Re1 = p.Re;
+  const Le1 = p.Le;
+
+  const loss2Scale = p.loss2Scale;
+  const Re2 = p.Re * loss2Scale;
+  const Le2 = p.Le * loss2Scale;
+
+  const Cmain = p.C;
+  const Cb1 = p.C * p.cb1Ratio;
+  const Cb2 = p.C * p.cb2Ratio;
+
   return {
-    Hm:20*Math.log10(absC(H)),
-    Hp:angC(H),
-    Zm:absC(Zin),
-    Zp:angC(Zin),
-    Zsh:internal.Zsh,
-    Zs:internal.Zs
+    split,
+    L1, L2,
+    Rdc1, Rdc2,
+    Re1, Le1,
+    Re2, Le2,
+    Cmain, Cb1, Cb2
   };
 }
 
-function modelForFit(p,f, measSettings){
-  const internal = buildInternalModel(p,f);
+function buildNodeAdmittances(p, f, extraOutputLoadY){
+  const w = 2*Math.PI*f;
+  const d = deriveStageParams(p);
 
+  let Ynode1 = complex(0,0);
+  let Yout = complex(0,0);
+
+  if(Number.isFinite(p.Rp) && p.Rp > 0){
+    Yout = add(Yout, complex(1/p.Rp, 0));
+  }
+
+  if(Number.isFinite(d.Cmain) && d.Cmain > 0){
+    Yout = add(Yout, complex(0, w * d.Cmain));
+  }
+
+  if(el('useRL').checked){
+    const Zloss1 = add(
+      seriesCapImpedance(f, d.Cb1),
+      add(complex(d.Re1, 0), complex(0, w * d.Le1))
+    );
+    const Yloss1 = inv(Zloss1);
+    Ynode1 = add(Ynode1, Yloss1);
+
+    const Zloss2 = add(
+      seriesCapImpedance(f, d.Cb2),
+      add(complex(d.Re2, 0), complex(0, w * d.Le2))
+    );
+    const Yloss2 = inv(Zloss2);
+    Yout = add(Yout, Yloss2);
+  }
+
+  if(extraOutputLoadY && !admittanceIsZero(extraOutputLoadY)){
+    Yout = add(Yout, extraOutputLoadY);
+  }
+
+  return { Ynode1, Yout, d };
+}
+
+function solveTwoStageNetwork(p, f, extraOutputLoadY){
+  const w = 2*Math.PI*f;
+  const parts = buildNodeAdmittances(p, f, extraOutputLoadY);
+  const d = parts.d;
+
+  const Z1 = complex(d.Rdc1, w * d.L1);
+  const Z2 = complex(d.Rdc2, w * d.L2);
+
+  const Y1s = inv(Z1);
+  const Y2s = inv(Z2);
+
+  const a11 = add(add(Y1s, Y2s), parts.Ynode1);
+  const a12 = mul(complex(-1,0), Y2s);
+  const a21 = mul(complex(-1,0), Y2s);
+  const a22 = add(Y2s, parts.Yout);
+
+  const b1 = Y1s; // Vin = 1
+  const b2 = complex(0,0);
+
+  const det = sub(mul(a11, a22), mul(a12, a21));
+  if(absC(det) < 1e-30){
+    return {
+      Hm: NaN, Hp: NaN, Zm: NaN, Zp: NaN,
+      H: complex(NaN,NaN),
+      Zin: complex(NaN,NaN),
+      V1: complex(NaN,NaN),
+      V2: complex(NaN,NaN),
+      Z1, Z2,
+      Ynode1: parts.Ynode1,
+      Yout: parts.Yout,
+      derived: d
+    };
+  }
+
+  const V1 = div(sub(mul(b1, a22), mul(a12, b2)), det);
+  const V2 = div(sub(mul(a11, b2), mul(a21, b1)), det);
+
+  const Vin = complex(1,0);
+  const Iin = mul(sub(Vin, V1), Y1s);
+  const Zin = div(Vin, Iin);
+
+  return {
+    Hm: 20*Math.log10(absC(V2)),
+    Hp: angC(V2),
+    Zm: absC(Zin),
+    Zp: angC(Zin),
+    H: V2,
+    Zin,
+    V1,
+    V2,
+    Z1,
+    Z2,
+    Ynode1: parts.Ynode1,
+    Yout: parts.Yout,
+    derived: d
+  };
+}
+
+function modelPure(p,f){
+  return solveTwoStageNetwork(p, f, complex(0,0));
+}
+
+function modelForFit(p,f, measSettings){
   const useMeas = measSettings && measSettings.enabled;
   const applyToH = useMeas;
   const applyToZ = useMeas && measSettings.mode === 'hAndZ';
-
   const measY = useMeas ? buildParallelLoadAdmittance(f, measSettings) : complex(0,0);
 
-  const ZshH = applyToH ? applyParallelLoadToZsh(internal.Zsh, measY) : internal.Zsh;
-  const HH = div(ZshH, add(internal.Zs, ZshH));
-
-  const ZshZ = applyToZ ? applyParallelLoadToZsh(internal.Zsh, measY) : internal.Zsh;
-  const ZinZ = inv(add(inv(internal.Zs), inv(ZshZ)));
+  const hModel = solveTwoStageNetwork(p, f, applyToH ? measY : complex(0,0));
+  const zModel = solveTwoStageNetwork(p, f, applyToZ ? measY : complex(0,0));
 
   return {
-    Hm:20*Math.log10(absC(HH)),
-    Hp:angC(HH),
-    Zm:absC(ZinZ),
-    Zp:angC(ZinZ),
-    Zsh:internal.Zsh,
-    Zs:internal.Zs
+    Hm: hModel.Hm,
+    Hp: hModel.Hp,
+    Zm: zModel.Zm,
+    Zp: zModel.Zp
   };
 }
 
@@ -856,9 +966,8 @@ function simulateCurvesForFit(p, meta){
 
 function computeModelQAtFrequency(p, f){
   if(!p || !Number.isFinite(f) || f <= 0) return null;
-
-  const internal = buildInternalModel(p, f);
-  const Zin = inv(add(inv(internal.Zs), inv(internal.Zsh)));
+  const m = modelPure(p, f);
+  const Zin = m.Zin;
 
   if(!Zin || !Number.isFinite(Zin.r) || !Number.isFinite(Zin.i)) return null;
   if(!(Zin.r > 0)) return null;
@@ -1085,16 +1194,19 @@ function randomParams(){
     Rp: rand(Number(el('rpMin').value), Number(el('rpMax').value)),
     L: rand(Number(el('lMin').value), Number(el('lMax').value)),
     C: rand(Number(el('cMin').value), Number(el('cMax').value)) * 1e-12,
-    Rc: rand(Number(el('rcMin').value), Number(el('rcMax').value)),
     Rdc: rand(Number(el('rdcMin').value), Number(el('rdcMax').value)),
     Re: rand(Number(el('reMin').value), Number(el('reMax').value)),
-    Le: rand(Number(el('leMin').value), Number(el('leMax').value))
+    Le: rand(Number(el('leMin').value), Number(el('leMax').value)),
+    split: rand(Number(el('splitMin').value), Number(el('splitMax').value)),
+    loss2Scale: rand(Number(el('loss2Min').value), Number(el('loss2Max').value)),
+    cb1Ratio: rand(Number(el('cb1RatioMin').value), Number(el('cb1RatioMax').value)),
+    cb2Ratio: rand(Number(el('cb2RatioMin').value), Number(el('cb2RatioMax').value))
   };
 }
 
 function mutateParams(p, fine){
   const q = JSON.parse(JSON.stringify(p));
-  const keys = ['Rp','L','C','Rc','Rdc','Re','Le'];
+  const keys = ['Rp','L','C','Rdc','Re','Le','split','loss2Scale','cb1Ratio','cb2Ratio'];
   const k = keys[Math.floor(Math.random()*keys.length)];
 
   let scale;
@@ -1105,13 +1217,27 @@ function mutateParams(p, fine){
   }
 
   q[k] *= scale;
+
+  if(k === 'split'){
+    q[k] += fine ? rand(-0.015,0.015) : rand(-0.08,0.08);
+  }
+  if(k === 'loss2Scale'){
+    q[k] += fine ? rand(-0.03,0.03) : rand(-0.12,0.12);
+  }
+  if(k === 'cb1Ratio' || k === 'cb2Ratio'){
+    q[k] += fine ? rand(-0.03,0.03) : rand(-0.14,0.14);
+  }
+
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
   q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
-  q.Rc = clamp(q.Rc, Number(el('rcMin').value), Number(el('rcMax').value));
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
   q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
   q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
+  q.split = clamp(q.split, Number(el('splitMin').value), Number(el('splitMax').value));
+  q.loss2Scale = clamp(q.loss2Scale, Number(el('loss2Min').value), Number(el('loss2Max').value));
+  q.cb1Ratio = clamp(q.cb1Ratio, Number(el('cb1RatioMin').value), Number(el('cb1RatioMax').value));
+  q.cb2Ratio = clamp(q.cb2Ratio, Number(el('cb2RatioMin').value), Number(el('cb2RatioMax').value));
   return q;
 }
 
@@ -1121,35 +1247,53 @@ function clampParamsToBounds(p){
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
   q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
-  q.Rc = clamp(q.Rc, Number(el('rcMin').value), Number(el('rcMax').value));
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
   q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
   q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
+  q.split = clamp(q.split, Number(el('splitMin').value), Number(el('splitMax').value));
+  q.loss2Scale = clamp(q.loss2Scale, Number(el('loss2Min').value), Number(el('loss2Max').value));
+  q.cb1Ratio = clamp(q.cb1Ratio, Number(el('cb1RatioMin').value), Number(el('cb1RatioMax').value));
+  q.cb2Ratio = clamp(q.cb2Ratio, Number(el('cb2RatioMin').value), Number(el('cb2RatioMax').value));
   return q;
 }
 
 function makeStartPopulation(){
   const starts = [];
+
   if(lastFitParams){
     starts.push(clampParamsToBounds(lastFitParams));
-    for(let i=0;i<8;i++){
+    for(let i=0;i<10;i++){
       const q = JSON.parse(JSON.stringify(clampParamsToBounds(lastFitParams)));
       q.Rp*=rand(0.92,1.08);
       q.L*=rand(0.96,1.04);
       q.C*=rand(0.92,1.08);
-      q.Rc*=rand(0.85,1.15);
       q.Rdc*=rand(0.96,1.04);
       q.Re*=rand(0.85,1.15);
       q.Le*=rand(0.85,1.15);
-      starts.push(mutateParams(q, true));
+      q.split+=rand(-0.03,0.03);
+      q.loss2Scale*=rand(0.85,1.15);
+      q.cb1Ratio*=rand(0.85,1.15);
+      q.cb2Ratio*=rand(0.85,1.15);
+      starts.push(mutateParams(clampParamsToBounds(q), true));
     }
   }
 
-  starts.push(clampParamsToBounds({Rp:150000,L:1.7,C:100e-12,Rc:1000,Rdc:4300,Re:70000,Le:3.5}));
-  starts.push(clampParamsToBounds({Rp:120000,L:1.5,C:80e-12,Rc:500,Rdc:4000,Re:50000,Le:2.0}));
-  starts.push(clampParamsToBounds({Rp:180000,L:2.0,C:120e-12,Rc:2000,Rdc:5000,Re:100000,Le:5.0}));
+  starts.push(clampParamsToBounds({
+    Rp:150000, L:1.8, C:100e-12, Rdc:4300, Re:70000, Le:3.5,
+    split:0.50, loss2Scale:1.00, cb1Ratio:0.70, cb2Ratio:1.20
+  }));
 
-  while(starts.length < 80) starts.push(randomParams());
+  starts.push(clampParamsToBounds({
+    Rp:120000, L:1.5, C:80e-12, Rdc:4000, Re:50000, Le:2.0,
+    split:0.42, loss2Scale:1.25, cb1Ratio:0.45, cb2Ratio:1.40
+  }));
+
+  starts.push(clampParamsToBounds({
+    Rp:180000, L:2.2, C:120e-12, Rdc:5000, Re:100000, Le:5.0,
+    split:0.58, loss2Scale:0.85, cb1Ratio:0.90, cb2Ratio:1.70
+  }));
+
+  while(starts.length < 90) starts.push(randomParams());
   return starts;
 }
 
@@ -1168,7 +1312,7 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
   const pad = {l:50, r:10, t:18, b:28};
   const px0 = pad.l, py0 = pad.t, pw = w-pad.l-pad.r, ph = h-pad.t-pad.b;
 
-  let allY = yFit.slice();
+  let allY = (yFit || []).filter(v => Number.isFinite(v));
   if(yTarget) allY = allY.concat(yTarget.filter(v => Number.isFinite(v)));
   let ymin, ymax;
   if(logY){
@@ -1392,11 +1536,9 @@ function loadResponse(p){
   const out = [];
 
   for(const f of freq){
-    const internal = buildInternalModel(p,f);
     const loadY = buildParallelLoadAdmittance(f, {R,L,C});
-    const ZoutLoaded = applyParallelLoadToZsh(internal.Zsh, loadY);
-    const Hload = div(ZoutLoaded, add(internal.Zs, ZoutLoaded));
-    out.push(20*Math.log10(absC(Hload)));
+    const m = solveTwoStageNetwork(p, f, loadY);
+    out.push(20*Math.log10(absC(m.H)));
   }
   return out;
 }
@@ -1405,6 +1547,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
   const simFit = simulateCurvesForFit(bestParams, fitMeta);
   const hOffset = computeHDisplayOffset(simFit, fitMeta);
   const alpha = Number(el('formFocus').value)/100;
+  const d = deriveStageParams(bestParams);
 
   const ePhys = errorPhysical(simFit, fitMeta);
   const eForm = errorForm(simFit, fitMeta);
@@ -1429,12 +1572,27 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
 
   return {
     Rp: +bestParams.Rp.toFixed(3),
-    L_H: +bestParams.L.toFixed(6),
-    C_pF: +(bestParams.C*1e12).toFixed(3),
-    Rc: +bestParams.Rc.toFixed(3),
-    Rdc: +bestParams.Rdc.toFixed(3),
-    Re: +bestParams.Re.toFixed(3),
-    Le_H: +bestParams.Le.toFixed(6),
+    L_total_H: +bestParams.L.toFixed(6),
+    Rdc_total_ohm: +bestParams.Rdc.toFixed(3),
+    Cmain_pF: +(bestParams.C*1e12).toFixed(3),
+    Re_base_ohm: +bestParams.Re.toFixed(3),
+    Le_base_H: +bestParams.Le.toFixed(6),
+    split: +bestParams.split.toFixed(6),
+    loss2_scale: +bestParams.loss2Scale.toFixed(6),
+    cb1_ratio: +bestParams.cb1Ratio.toFixed(6),
+    cb2_ratio: +bestParams.cb2Ratio.toFixed(6),
+
+    L1_H: +d.L1.toFixed(6),
+    L2_H: +d.L2.toFixed(6),
+    Rdc1_ohm: +d.Rdc1.toFixed(3),
+    Rdc2_ohm: +d.Rdc2.toFixed(3),
+    Re1_ohm: +d.Re1.toFixed(3),
+    Le1_H: +d.Le1.toFixed(6),
+    Re2_ohm: +d.Re2.toFixed(3),
+    Le2_H: +d.Le2.toFixed(6),
+    Cb1_pF: +(d.Cb1*1e12).toFixed(3),
+    Cb2_pF: +(d.Cb2*1e12).toFixed(3),
+
     objective: +((bestObjective ?? 0)).toFixed(6),
     objective_physical: +ePhys.toFixed(6),
     objective_form: +eForm.toFixed(6),
@@ -1444,23 +1602,30 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     low_anchor_hz: +fitMeta.lowHz.toFixed(1),
     dip_focus_hz: +fitMeta.fDip.toFixed(1),
     peak_focus_hz: +fitMeta.fPeak.toFixed(1),
+
     auto_c_bounds_applied: !!(fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied),
     auto_c_min_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMin_pF.toFixed(3) : null,
     auto_c_max_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMax_pF.toFixed(3) : null,
     resonance_used_hz: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.f0_Hz.toFixed(1) : null,
     c_bounds_reason: fitMeta.cBoundsInfo && !fitMeta.cBoundsInfo.applied ? fitMeta.cBoundsInfo.reason : null,
+    c_bounds_interpretation: fitMeta.cBoundsInfo ? (fitMeta.cBoundsInfo.interpretation || 'C bounds refer to Cmain.') : 'C bounds refer to Cmain.',
+
     measurement_load_used_in_fit: !!meas.enabled,
     measurement_load_apply_mode: meas.enabled ? meas.mode : null,
     measurement_load_Rin_ohm: meas.enabled ? +meas.R.toFixed(3) : null,
     measurement_load_Cin_pF: meas.enabled ? +(meas.C*1e12).toFixed(3) : null,
     measurement_load_Lin_H: meas.enabled ? +meas.L.toFixed(6) : null,
+
     q_constraint_active: !!qc.enabled,
     Q_meas: qc.enabled && Number.isFinite(qc.Q_meas) ? +qc.Q_meas.toFixed(6) : null,
     f_meas: qc.enabled && Number.isFinite(qc.f_meas) ? +qc.f_meas.toFixed(3) : null,
     Q_model: Number.isFinite(Q_model) ? +Q_model.toFixed(6) : null,
     Q_weight: qc.enabled && Number.isFinite(qc.Q_weight) ? +qc.Q_weight.toFixed(6) : null,
+
     h_phase_correction_deg: fitMeta && Number.isFinite(fitMeta.hPhaseCorrectionDeg) ? fitMeta.hPhaseCorrectionDeg : 0,
-    q_definition: "Q = abs(Im(Zin)) / Re(Zin) at f_meas using full current model",
+    q_definition: "Q = abs(Im(Zin)) / Re(Zin) at f_meas using full current two-stage model",
+    model_topology: "Source -> (Rdc1+jwL1) -> Node1 -> (Rdc2+jwL2) -> Output; Node1: Cb1 series (Re1+jwLe1) to ground; Output: Cmain || Rp || [Cb2 series (Re2+jwLe2)] to ground",
+    plot1_and_plot5_use_manual_H_limits: true,
     post_fit_plots_1_to_4_show_fit_condition: true,
     plot5_uses_pure_internal_model_only: true,
     additional_RL_LL_CL_load_is_separate_from_measurement_load: true
@@ -1479,14 +1644,20 @@ function saveAppState(){
         lMax: el('lMax').value,
         cMin: el('cMin').value,
         cMax: el('cMax').value,
-        rcMin: el('rcMin').value,
-        rcMax: el('rcMax').value,
         rdcMin: el('rdcMin').value,
         rdcMax: el('rdcMax').value,
         reMin: el('reMin').value,
         reMax: el('reMax').value,
         leMin: el('leMin').value,
         leMax: el('leMax').value,
+        splitMin: el('splitMin').value,
+        splitMax: el('splitMax').value,
+        loss2Min: el('loss2Min').value,
+        loss2Max: el('loss2Max').value,
+        cb1RatioMin: el('cb1RatioMin').value,
+        cb1RatioMax: el('cb1RatioMax').value,
+        cb2RatioMin: el('cb2RatioMin').value,
+        cb2RatioMax: el('cb2RatioMax').value,
         loadR: el('loadR').value,
         loadL: el('loadL').value,
         loadC: el('loadC').value,
@@ -1535,14 +1706,20 @@ function restoreAppState(){
       el('lMax').value = state.ui.lMax ?? el('lMax').value;
       el('cMin').value = state.ui.cMin ?? el('cMin').value;
       el('cMax').value = state.ui.cMax ?? el('cMax').value;
-      el('rcMin').value = state.ui.rcMin ?? el('rcMin').value;
-      el('rcMax').value = state.ui.rcMax ?? el('rcMax').value;
       el('rdcMin').value = state.ui.rdcMin ?? el('rdcMin').value;
       el('rdcMax').value = state.ui.rdcMax ?? el('rdcMax').value;
       el('reMin').value = state.ui.reMin ?? el('reMin').value;
       el('reMax').value = state.ui.reMax ?? el('reMax').value;
       el('leMin').value = state.ui.leMin ?? el('leMin').value;
       el('leMax').value = state.ui.leMax ?? el('leMax').value;
+      el('splitMin').value = state.ui.splitMin ?? el('splitMin').value;
+      el('splitMax').value = state.ui.splitMax ?? el('splitMax').value;
+      el('loss2Min').value = state.ui.loss2Min ?? el('loss2Min').value;
+      el('loss2Max').value = state.ui.loss2Max ?? el('loss2Max').value;
+      el('cb1RatioMin').value = state.ui.cb1RatioMin ?? el('cb1RatioMin').value;
+      el('cb1RatioMax').value = state.ui.cb1RatioMax ?? el('cb1RatioMax').value;
+      el('cb2RatioMin').value = state.ui.cb2RatioMin ?? el('cb2RatioMin').value;
+      el('cb2RatioMax').value = state.ui.cb2RatioMax ?? el('cb2RatioMax').value;
       el('loadR').value = state.ui.loadR ?? el('loadR').value;
       el('loadL').value = state.ui.loadL ?? el('loadL').value;
       el('loadC').value = state.ui.loadC ?? el('loadC').value;
@@ -1631,7 +1808,7 @@ async function runFit(){
     let best = null;
     let bestE = 1e99;
     const starts = makeStartPopulation();
-    const iters = 260;
+    const iters = 300;
 
     const meas = fitMeta.measSettings;
     let baseStatus = 'Fit running ...';
@@ -1640,7 +1817,7 @@ async function runFit(){
     }
 
     if(cBoundsInfo.applied){
-      setStatus(`${baseStatus} | resonance-guided C bounds applied (${cBoundsInfo.cMin_pF.toFixed(1)} pF ... ${cBoundsInfo.cMax_pF.toFixed(1)} pF)`);
+      setStatus(`${baseStatus} | resonance-guided Cmain bounds applied (${cBoundsInfo.cMin_pF.toFixed(1)} pF ... ${cBoundsInfo.cMax_pF.toFixed(1)} pF)`);
     } else {
       setStatus(baseStatus);
     }
@@ -1652,19 +1829,19 @@ async function runFit(){
       if(e < bestE){ best = JSON.parse(JSON.stringify(p)); bestE = e; }
 
       for(let i=0;i<iters;i++){
-        if(i % 40 === 0 && Math.random() < 0.3){
+        if(i % 45 === 0 && Math.random() < 0.3){
           p = randomParams();
           e = errorOf(p, fitMeta);
         }
 
-        const q = mutateParams(p, i < iters*0.7);
+        const q = mutateParams(p, i < iters*0.72);
         const eq = errorOf(q, fitMeta);
         if(eq < e){ p = q; e = eq; }
         if(eq < bestE){ best = JSON.parse(JSON.stringify(q)); bestE = eq; }
       }
 
       if(cBoundsInfo.applied){
-        setStatus(`${baseStatus} | start ${s+1}/${starts.length} | C bounds ${cBoundsInfo.cMin_pF.toFixed(1)}...${cBoundsInfo.cMax_pF.toFixed(1)} pF`);
+        setStatus(`${baseStatus} | start ${s+1}/${starts.length} | Cmain bounds ${cBoundsInfo.cMin_pF.toFixed(1)}...${cBoundsInfo.cMax_pF.toFixed(1)} pF`);
       } else {
         setStatus(`${baseStatus} | start ${s+1}/${starts.length}`);
       }
@@ -1737,7 +1914,15 @@ el('resetBtn').addEventListener('click', resetFitMemory);
   });
 });
 
-['useRL','weightH','useMeasLoad','measR','measL','measC','measApplyMode','useQConstraint','qMeas','qFreq','qWeight','applyHPhaseCorrection','formFocus','lowAnchorHz','rpMin','rpMax','lMin','lMax','cMin','cMax','rcMin','rcMax','rdcMin','rdcMax','reMin','reMax','leMin','leMax'].forEach(id => {
+[
+  'useRL','weightH','useMeasLoad','measR','measL','measC','measApplyMode',
+  'useQConstraint','qMeas','qFreq','qWeight','applyHPhaseCorrection',
+  'formFocus','lowAnchorHz',
+  'rpMin','rpMax','lMin','lMax','cMin','cMax',
+  'rdcMin','rdcMax','reMin','reMax','leMin','leMax',
+  'splitMin','splitMax','loss2Min','loss2Max',
+  'cb1RatioMin','cb1RatioMax','cb2RatioMin','cb2RatioMax'
+].forEach(id => {
   el(id).addEventListener('change', saveAppState);
 });
 
