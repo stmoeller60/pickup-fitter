@@ -226,7 +226,8 @@
         <div class="field"><label>Q weight</label><input id="qWeight" type="number" value="0.25" step="0.001"></div>
         <div class="small">
           Optional soft constraint only. The Q term is added to the total fit error only when enabled and only for valid positive inputs.
-          Q is evaluated from the full input impedance of the new distributed network at f_meas.
+          Q is currently evaluated as a <b>series-equivalent Q</b> from the full input impedance of the distributed model at f_meas:
+          <b>Q = abs(Im(Zin)) / Re(Zin)</b>.
         </div>
       </div>
 
@@ -1181,7 +1182,7 @@ function errorOf(p, meta){
     qc.enabled &&
     Number.isFinite(qc.Q_meas) && qc.Q_meas > 0 &&
     Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
-    Number.isFinite(qc.Q_weight)
+    Number.isFinite(qc.Q_weight) && qc.Q_weight >= 0
   ){
     const Q_model = computeModelQAtFrequency(p, qc.f_meas);
     if(Number.isFinite(Q_model)){
@@ -1637,9 +1638,9 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     qc.enabled &&
     Number.isFinite(qc.Q_meas) && qc.Q_meas > 0 &&
     Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
-    Number.isFinite(qc.Q_weight)
+    Number.isFinite(qc.Q_weight) && qc.Q_weight >= 0
   ){
-    const Q_model = computeModelQAtFrequency(bestParams, qc.f_meas);
+    Q_model = computeModelQAtFrequency(bestParams, qc.f_meas);
     if(Number.isFinite(Q_model)){
       objective_q_term = qc.Q_weight * sq(Q_model - qc.Q_meas);
     }
@@ -1716,7 +1717,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     fit_stall_count_at_best_start_end: runInfo ? runInfo.best_start_final_stall_count : null,
     fit_total_starts: runInfo ? runInfo.total_starts : null,
 
-    q_definition: "Q = abs(Im(Zin)) / Re(Zin) at f_meas using full distributed current model",
+    q_definition: "Series-equivalent Q = abs(Im(Zin)) / Re(Zin) at f_meas using full distributed input impedance",
     post_fit_plots_1_to_4_show_fit_condition: true,
     plot5_uses_pure_internal_model_only: true,
     additional_RL_LL_CL_load_is_separate_from_measurement_load: true
