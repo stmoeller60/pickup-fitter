@@ -157,15 +157,13 @@
 <div class="wrap">
   <h1>Pickup Model Fitter</h1>
   <div class="sub">
-    Loads 1 to 4 TXT files. The fit uses only the curves that are present. The additional load is never included in the fit itself, but is applied to the model afterwards only.
-New: Shape Focus blends between physical weighting and local peak/dip shape fidelity. In addition, a pure display offset is calculated for the H magnitude 
-after fitting, so the shape remains unchanged and only the level is adjusted.
-New: The capacitance C is no longer searched freely over a wide range, but is automatically constrained based on the detected resonance frequency. 
-Using the physical relation between resonance frequency, inductance, and capacitance, a plausible range for C is derived from the measured peak and the current L bounds.
-
-This improves fit stability, prevents non-physical solutions, and leads to more consistent and reproducible results, while keeping the overall model and fitting strategy unchanged.
-
-New: A known measurement load can now be included during the fit only. This allows reconstruction of the internal pickup model even when H and optionally Z were measured under a real interface input load such as Rin and Cin. The measurement load is removed completely after fitting. Any later RL/LL/CL load simulation always uses the pure identified internal pickup model only.
+    Loads 1 to 4 TXT files. The fit uses only the curves that are present. The additional load is never included in the fit itself, but is applied to the model afterwards only.<br>
+    New: Shape Focus blends between physical weighting and local peak/dip shape fidelity. In addition, a pure display offset is calculated for the H magnitude
+    after fitting, so the shape remains unchanged and only the level is adjusted.<br>
+    New: The capacitance bounds are resonance-guided. The automatic resonance-based C bounds now apply <b>only to C2</b>, which is the main output shunt capacitance of the distributed model.
+    The auxiliary capacitors C1, Cb1 and Cb2 are derived only via factors and are therefore not directly constrained by the resonance routine.<br>
+    New: A known measurement load can now be included during the fit only. This allows reconstruction of the internal pickup model even when H and optionally Z were measured under a real interface input load such as Rin and Cin.
+    The measurement load is removed completely after fitting. Any later RL/LL/CL load simulation always uses the pure identified internal pickup model only.
   </div>
 
   <div class="layout">
@@ -183,13 +181,17 @@ New: A known measurement load can now be included during the fit only. This allo
 
       <div class="panel">
         <h2>Model</h2>
-        <div class="checkline"><input id="useRL" type="checkbox" checked><span>RL branch active</span></div>
+        <div class="checkline"><input id="useRL" type="checkbox" checked><span>Capacitively coupled loss branches active</span></div>
         <div class="checkline"><input id="weightH" type="checkbox" checked><span>Weight H more strongly</span></div>
         <div class="small">
-          Model:<br>
-          <b>Generator → (Rdc + jωL) → Output</b><br>
-          From output to ground:<br>
-          <b>Rp ∥ C ∥ (Re + jωLe)</b>
+          Distributed model:<br>
+          <b>Source → (Rdc1 + jωL1) → Node1 → (Rdc2 + jωL2) → Output</b><br><br>
+          Node1 to ground:<br>
+          <b>C1</b> in parallel with <b>Cb1 + (Re1 + jωLe1)</b><br><br>
+          Output to ground:<br>
+          <b>C2 ∥ Rp</b> in parallel with <b>Cb2 + (Re2 + jωLe2)</b><br><br>
+          The split parameter divides total <b>L</b> and total <b>Rdc</b> into stage 1 and stage 2.<br>
+          <b>C2</b> is the resonance-relevant main capacitance. <b>C1</b>, <b>Cb1</b>, and <b>Cb2</b> are factor-derived.
         </div>
       </div>
 
@@ -224,6 +226,8 @@ New: A known measurement load can now be included during the fit only. This allo
         <div class="field"><label>Q weight</label><input id="qWeight" type="number" value="0.25" step="0.001"></div>
         <div class="small">
           Optional soft constraint only. The Q term is added to the total fit error only when enabled and only for valid positive inputs.
+          Q is currently evaluated as a <b>series-equivalent Q</b> from the full input impedance of the distributed model at f_meas:
+          <b>Q = abs(Im(Zin)) / Re(Zin)</b>.
         </div>
       </div>
 
@@ -255,6 +259,23 @@ New: A known measurement load can now be included during the fit only. This allo
       </div>
 
       <div class="panel">
+        <h2>Fit Control</h2>
+        <div class="row">
+          <div class="field"><label>Target Error</label><input id="targetError" type="number" value="0.50" step="0.0001"></div>
+          <div class="field"><label>Max Iterations per Start</label><input id="maxIterPerStart" type="number" value="400" step="1"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Stall Limit</label><input id="stallLimit" type="number" value="120" step="1"></div>
+          <div class="field"><label>Min Improvement</label><input id="minImprovement" type="number" value="0.0005" step="0.000001"></div>
+        </div>
+        <div class="small">
+          Adaptive stop control for each start point. The fit continues while meaningful improvements occur, and stops when the
+          target error is reached, the stall limit is exceeded, or the maximum iteration count per start is reached.
+          Internally, the mutation strength is reduced in multiple refinement stages: coarse → medium → fine → very fine.
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Bounds / Ranges</h2>
         <div class="row">
           <div class="field"><label>Rp min [Ω]</label><input id="rpMin" type="number" value="10000"></div>
@@ -265,20 +286,44 @@ New: A known measurement load can now be included during the fit only. This allo
           <div class="field"><label>L max [H]</label><input id="lMax" type="number" value="10" step="0.01"></div>
         </div>
         <div class="row">
-          <div class="field"><label>C min [pF]</label><input id="cMin" type="number" value="50" step="0.1"></div>
-          <div class="field"><label>C max [pF]</label><input id="cMax" type="number" value="500" step="0.1"></div>
+          <div class="field"><label>C2 min [pF]</label><input id="cMin" type="number" value="50" step="0.1"></div>
+          <div class="field"><label>C2 max [pF]</label><input id="cMax" type="number" value="500" step="0.1"></div>
         </div>
         <div class="row">
           <div class="field"><label>Rdc min [Ω]</label><input id="rdcMin" type="number" value="1000"></div>
           <div class="field"><label>Rdc max [Ω]</label><input id="rdcMax" type="number" value="20000"></div>
         </div>
         <div class="row">
-          <div class="field"><label>Re min [Ω]</label><input id="reMin" type="number" value="100"></div>
-          <div class="field"><label>Re max [Ω]</label><input id="reMax" type="number" value="200000"></div>
+          <div class="field"><label>Split min</label><input id="splitMin" type="number" value="0.35" step="0.001"></div>
+          <div class="field"><label>Split max</label><input id="splitMax" type="number" value="0.65" step="0.001"></div>
         </div>
         <div class="row">
-          <div class="field"><label>Le min [H]</label><input id="leMin" type="number" value="0.001" step="0.001"></div>
-          <div class="field"><label>Le max [H]</label><input id="leMax" type="number" value="10" step="0.01"></div>
+          <div class="field"><label>C1/C2 factor min</label><input id="c1FactorMin" type="number" value="0.02" step="0.001"></div>
+          <div class="field"><label>C1/C2 factor max</label><input id="c1FactorMax" type="number" value="0.60" step="0.001"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Re1 min [Ω]</label><input id="reMin" type="number" value="100"></div>
+          <div class="field"><label>Re1 max [Ω]</label><input id="reMax" type="number" value="200000"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Le1 min [H]</label><input id="leMin" type="number" value="0.001" step="0.001"></div>
+          <div class="field"><label>Le1 max [H]</label><input id="leMax" type="number" value="10" step="0.01"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Re2/Re1 scale min</label><input id="re2ScaleMin" type="number" value="0.30" step="0.001"></div>
+          <div class="field"><label>Re2/Re1 scale max</label><input id="re2ScaleMax" type="number" value="3.00" step="0.001"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Le2/Le1 scale min</label><input id="le2ScaleMin" type="number" value="0.30" step="0.001"></div>
+          <div class="field"><label>Le2/Le1 scale max</label><input id="le2ScaleMax" type="number" value="3.00" step="0.001"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Cb1/C2 factor min</label><input id="cb1FactorMin" type="number" value="0.02" step="0.001"></div>
+          <div class="field"><label>Cb1/C2 factor max</label><input id="cb1FactorMax" type="number" value="1.20" step="0.001"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Cb2/C2 factor min</label><input id="cb2FactorMin" type="number" value="0.02" step="0.001"></div>
+          <div class="field"><label>Cb2/C2 factor max</label><input id="cb2FactorMax" type="number" value="1.20" step="0.001"></div>
         </div>
       </div>
 
@@ -347,6 +392,8 @@ el('formFocus').addEventListener('input', updateFocusLabel);
 
 function complex(r,i){ return {r:r, i:i}; }
 function add(a,b){ return {r:a.r+b.r, i:a.i+b.i}; }
+function sub(a,b){ return {r:a.r-b.r, i:a.i-b.i}; }
+function mul(a,b){ return {r:a.r*b.r - a.i*b.i, i:a.r*b.i + a.i*b.r}; }
 function inv(z){
   const d = z.r*z.r + z.i*z.i;
   if(d === 0) return {r:1e30, i:0};
@@ -354,6 +401,7 @@ function inv(z){
 }
 function div(a,b){
   const d = b.r*b.r + b.i*b.i;
+  if(d === 0) return {r:1e30, i:0};
   return {r:(a.r*b.r + a.i*b.i)/d, i:(a.i*b.r - a.r*b.i)/d};
 }
 function absC(z){ return Math.hypot(z.r,z.i); }
@@ -373,24 +421,6 @@ function wrapPhaseDeg(deg){
 function phaseDiffDeg(a, b){
   if(!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
   return wrapPhaseDeg(a - b);
-}
-
-function unwrapPhaseArrayDeg(arr){
-  if(!arr || !arr.length) return arr ? arr.slice() : null;
-  const out = new Array(arr.length);
-  out[0] = arr[0];
-  for(let i=1;i<arr.length;i++){
-    const v = arr[i];
-    const prev = out[i-1];
-    if(!Number.isFinite(v) || !Number.isFinite(prev)){
-      out[i] = v;
-      continue;
-    }
-    let delta = v - arr[i-1];
-    delta = wrapPhaseDeg(delta);
-    out[i] = prev + delta;
-  }
-  return out;
 }
 
 function unwrapPhaseArrayDegAnchored(arr, anchorIdx = 0){
@@ -686,14 +716,14 @@ function applyResonanceGuidedCBounds(meta){
   if(!cInfo){
     return {
       applied:false,
-      reason:'Could not derive plausible C bounds from resonance.'
+      reason:'Could not derive plausible C2 bounds from resonance.'
     };
   }
 
   if(cInfo.cMin_pF < 1 || cInfo.cMax_pF > 2000){
     return {
       applied:false,
-      reason:'Derived C bounds outside allowed safety range.'
+      reason:'Derived C2 bounds outside allowed safety range.'
     };
   }
 
@@ -722,6 +752,25 @@ function getQConstraintSettings(){
     Q_meas: Number(el('qMeas').value),
     f_meas: Number(el('qFreq').value),
     Q_weight: Number(el('qWeight').value)
+  };
+}
+
+function getFitControlSettings(){
+  let targetError = Number(el('targetError').value);
+  let maxIterPerStart = Math.round(Number(el('maxIterPerStart').value));
+  let stallLimit = Math.round(Number(el('stallLimit').value));
+  let minImprovement = Number(el('minImprovement').value);
+
+  if(!Number.isFinite(targetError) || targetError < 0) targetError = 0.5;
+  if(!Number.isFinite(maxIterPerStart) || maxIterPerStart < 1) maxIterPerStart = 400;
+  if(!Number.isFinite(stallLimit) || stallLimit < 1) stallLimit = 120;
+  if(!Number.isFinite(minImprovement) || minImprovement < 0) minImprovement = 0.0005;
+
+  return {
+    targetError,
+    maxIterPerStart,
+    stallLimit,
+    minImprovement
   };
 }
 
@@ -754,85 +803,171 @@ function admittanceIsZero(Y){
   return Math.abs(Y.r) < 1e-30 && Math.abs(Y.i) < 1e-30;
 }
 
-function buildInternalModel(p,f){
-  const w = 2*Math.PI*f;
-  const wSafe = Math.max(w, 1e-12);
-
-  const Zs = complex(p.Rdc, w*p.L);
-
-  const Cp_block = 1.0;
-  const Ce_block = 1.0;
-
-  let Ysh = complex(0, w * p.C);
-
-  const Zcp = complex(0, -1 / (wSafe * Cp_block));
-  const Zrp_branch = add(complex(p.Rp, 0), Zcp);
-  Ysh = add(Ysh, inv(Zrp_branch));
-
-  if(el('useRL').checked){
-    const Zce = complex(0, -1 / (wSafe * Ce_block));
-    const Ze_branch = add(
-      add(complex(p.Re, 0), complex(0, w * p.Le)),
-      Zce
-    );
-    Ysh = add(Ysh, inv(Ze_branch));
+function upgradeLegacyParams(p){
+  if(!p) return null;
+  if(
+    ('split' in p) &&
+    ('C2' in p) &&
+    ('C1Factor' in p) &&
+    ('Re1' in p) &&
+    ('Le1' in p) &&
+    ('Re2Scale' in p) &&
+    ('Le2Scale' in p) &&
+    ('Cb1Factor' in p) &&
+    ('Cb2Factor' in p)
+  ){
+    return JSON.parse(JSON.stringify(p));
   }
 
-  const Zsh = inv(Ysh);
-  return { Zs, Zsh };
-}
-
-function applyParallelLoadToZsh(Zsh, loadY){
-  if(admittanceIsZero(loadY)) return Zsh;
-  return inv(add(inv(Zsh), loadY));
-}
-
-function modelPure(p,f){
-  const internal = buildInternalModel(p,f);
-  const H = div(internal.Zsh, add(internal.Zs, internal.Zsh));
-  const Zin = inv(add(inv(internal.Zs), inv(internal.Zsh)));
   return {
-    Hm:20*Math.log10(absC(H)),
-    Hp:angC(H),
-    Zm:absC(Zin),
-    Zp:angC(Zin),
-    Zsh:internal.Zsh,
-    Zs:internal.Zs
+    Rp: Number.isFinite(p.Rp) ? p.Rp : 150000,
+    L: Number.isFinite(p.L) ? p.L : 1.8,
+    C2: Number.isFinite(p.C) ? p.C : 100e-12,
+    Rdc: Number.isFinite(p.Rdc) ? p.Rdc : 4300,
+    split: 0.5,
+    C1Factor: 0.15,
+    Re1: Number.isFinite(p.Re) ? p.Re : 70000,
+    Le1: Number.isFinite(p.Le) ? p.Le : 3.5,
+    Re2Scale: 1.0,
+    Le2Scale: 1.0,
+    Cb1Factor: 0.15,
+    Cb2Factor: 0.15
   };
 }
 
-function modelForFit(p,f, measSettings){
-  const internal = buildInternalModel(p,f);
+function getDerivedParams(p){
+  const split = clamp(p.split, 0.01, 0.99);
 
+  const L1 = p.L * split;
+  const L2 = p.L * (1 - split);
+  const Rdc1 = p.Rdc * split;
+  const Rdc2 = p.Rdc * (1 - split);
+
+  const C2 = p.C2;
+  const C1 = p.C2 * p.C1Factor;
+  const Re1 = p.Re1;
+  const Le1 = p.Le1;
+  const Re2 = p.Re1 * p.Re2Scale;
+  const Le2 = p.Le1 * p.Le2Scale;
+  const Cb1 = p.C2 * p.Cb1Factor;
+  const Cb2 = p.C2 * p.Cb2Factor;
+
+  return {
+    split,
+    L1, L2,
+    Rdc1, Rdc2,
+    C1, C2,
+    Re1, Le1,
+    Re2, Le2,
+    Cb1, Cb2,
+    Rp: p.Rp
+  };
+}
+
+function solveDistributedNetwork(p, f, extraOutputY){
+  const w = 2*Math.PI*f;
+  const wSafe = Math.max(w, 1e-18);
+  const d = getDerivedParams(p);
+
+  const Zs1 = complex(d.Rdc1, w * d.L1);
+  const Zs2 = complex(d.Rdc2, w * d.L2);
+
+  const Yc1 = d.C1 > 0 ? complex(0, w * d.C1) : complex(0,0);
+  const Yc2 = d.C2 > 0 ? complex(0, w * d.C2) : complex(0,0);
+  const Yrp = (Number.isFinite(d.Rp) && d.Rp > 0) ? complex(1/d.Rp, 0) : complex(0,0);
+
+  let Yloss1 = complex(0,0);
+  let Yloss2 = complex(0,0);
+
+  if(el('useRL').checked){
+    const Zcb1 = d.Cb1 > 0 ? complex(0, -1/(wSafe * d.Cb1)) : complex(1e30, 0);
+    const Zcb2 = d.Cb2 > 0 ? complex(0, -1/(wSafe * d.Cb2)) : complex(1e30, 0);
+
+    const Zrl1 = add(complex(d.Re1, 0), complex(0, w * d.Le1));
+    const Zrl2 = add(complex(d.Re2, 0), complex(0, w * d.Le2));
+
+    Yloss1 = inv(add(Zcb1, Zrl1));
+    Yloss2 = inv(add(Zcb2, Zrl2));
+  }
+
+  const Y1 = add(Yc1, Yloss1);
+  let Y2 = add(add(Yc2, Yrp), Yloss2);
+
+  if(extraOutputY && !admittanceIsZero(extraOutputY)){
+    Y2 = add(Y2, extraOutputY);
+  }
+
+  const YS1 = inv(Zs1);
+  const YS2 = inv(Zs2);
+
+  const A11 = add(add(YS1, Y1), YS2);
+  const A12 = complex(-YS2.r, -YS2.i);
+  const A21 = complex(-YS2.r, -YS2.i);
+  const A22 = add(YS2, Y2);
+
+  const B1 = YS1;
+  const B2 = complex(0,0);
+
+  const det = sub(mul(A11, A22), mul(A12, A21));
+  if(absC(det) < 1e-40){
+    return {
+      Hm: -300,
+      Hp: 0,
+      Zm: 1e-12,
+      Zp: 0,
+      V1: complex(0,0),
+      V2: complex(0,0),
+      Zin: complex(1e-12,0),
+      Y1,
+      Y2,
+      Zs1,
+      Zs2
+    };
+  }
+
+  const V1 = div(sub(mul(B1, A22), mul(A12, B2)), det);
+  const V2 = div(sub(mul(A11, B2), mul(A21, B1)), det);
+
+  const Iin = mul(sub(complex(1,0), V1), YS1);
+  const Zin = absC(Iin) > 1e-40 ? div(complex(1,0), Iin) : complex(1e30, 0);
+
+  const H = V2;
+
+  return {
+    Hm: 20*Math.log10(Math.max(absC(H), 1e-15)),
+    Hp: angC(H),
+    Zm: Math.max(absC(Zin), 1e-15),
+    Zp: angC(Zin),
+    V1,
+    V2,
+    Zin,
+    Y1,
+    Y2,
+    Zs1,
+    Zs2
+  };
+}
+
+function modelPure(p,f){
+  return solveDistributedNetwork(p, f, complex(0,0));
+}
+
+function modelForFit(p,f, measSettings){
   const useMeas = measSettings && measSettings.enabled;
   const applyToH = useMeas;
   const applyToZ = useMeas && measSettings.mode === 'hAndZ';
 
   const measY = useMeas ? buildParallelLoadAdmittance(f, measSettings) : complex(0,0);
 
-  const ZshH = applyToH ? applyParallelLoadToZsh(internal.Zsh, measY) : internal.Zsh;
-  const HH = div(ZshH, add(internal.Zs, ZshH));
-
-  const ZshZ = applyToZ ? applyParallelLoadToZsh(internal.Zsh, measY) : internal.Zsh;
-  const ZinZ = inv(add(inv(internal.Zs), inv(ZshZ)));
+  const hModel = solveDistributedNetwork(p, f, applyToH ? measY : complex(0,0));
+  const zModel = solveDistributedNetwork(p, f, applyToZ ? measY : complex(0,0));
 
   return {
-    Hm:20*Math.log10(absC(HH)),
-    Hp:angC(HH),
-    Zm:absC(ZinZ),
-    Zp:angC(ZinZ),
-    Zsh:internal.Zsh,
-    Zs:internal.Zs
+    Hm: hModel.Hm,
+    Hp: hModel.Hp,
+    Zm: zModel.Zm,
+    Zp: zModel.Zp
   };
-}
-
-function simulateCurvesPure(p){
-  const Hm=[], Hp=[], Zm=[], Zp=[];
-  for(const f of freq){
-    const m = modelPure(p,f);
-    Hm.push(m.Hm); Hp.push(m.Hp); Zm.push(m.Zm); Zp.push(m.Zp);
-  }
-  return {Hm,Hp,Zm,Zp};
 }
 
 function simulateCurvesForFit(p, meta){
@@ -841,10 +976,7 @@ function simulateCurvesForFit(p, meta){
 
   for(const f of freq){
     const m = modelForFit(p, f, measSettings);
-    Hm.push(m.Hm);
-    Hp.push(m.Hp);
-    Zm.push(m.Zm);
-    Zp.push(m.Zp);
+    Hm.push(m.Hm); Hp.push(m.Hp); Zm.push(m.Zm); Zp.push(m.Zp);
   }
 
   return {Hm,Hp,Zm,Zp};
@@ -853,8 +985,8 @@ function simulateCurvesForFit(p, meta){
 function computeModelQAtFrequency(p, f){
   if(!p || !Number.isFinite(f) || f <= 0) return null;
 
-  const internal = buildInternalModel(p, f);
-  const Zin = inv(add(inv(internal.Zs), inv(internal.Zsh)));
+  const m = modelPure(p, f);
+  const Zin = m.Zin;
 
   if(!Zin || !Number.isFinite(Zin.r) || !Number.isFinite(Zin.i)) return null;
   if(!(Zin.r > 0)) return null;
@@ -921,6 +1053,8 @@ function buildFitMeta(data){
     cBoundsInfo: null,
     measSettings: getMeasurementLoadSettings(),
     qConstraint: getQConstraintSettings(),
+    fitControl: getFitControlSettings(),
+    fitRunInfo: null,
     hPhaseCorrectionDeg
   };
 }
@@ -1048,7 +1182,7 @@ function errorOf(p, meta){
     qc.enabled &&
     Number.isFinite(qc.Q_meas) && qc.Q_meas > 0 &&
     Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
-    Number.isFinite(qc.Q_weight)
+    Number.isFinite(qc.Q_weight) && qc.Q_weight >= 0
   ){
     const Q_model = computeModelQAtFrequency(p, qc.f_meas);
     if(Number.isFinite(Q_model)){
@@ -1080,66 +1214,158 @@ function randomParams(){
   return {
     Rp: rand(Number(el('rpMin').value), Number(el('rpMax').value)),
     L: rand(Number(el('lMin').value), Number(el('lMax').value)),
-    C: rand(Number(el('cMin').value), Number(el('cMax').value)) * 1e-12,
+    C2: rand(Number(el('cMin').value), Number(el('cMax').value)) * 1e-12,
     Rdc: rand(Number(el('rdcMin').value), Number(el('rdcMax').value)),
-    Re: rand(Number(el('reMin').value), Number(el('reMax').value)),
-    Le: rand(Number(el('leMin').value), Number(el('leMax').value))
+    split: rand(Number(el('splitMin').value), Number(el('splitMax').value)),
+    C1Factor: rand(Number(el('c1FactorMin').value), Number(el('c1FactorMax').value)),
+    Re1: rand(Number(el('reMin').value), Number(el('reMax').value)),
+    Le1: rand(Number(el('leMin').value), Number(el('leMax').value)),
+    Re2Scale: rand(Number(el('re2ScaleMin').value), Number(el('re2ScaleMax').value)),
+    Le2Scale: rand(Number(el('le2ScaleMin').value), Number(el('le2ScaleMax').value)),
+    Cb1Factor: rand(Number(el('cb1FactorMin').value), Number(el('cb1FactorMax').value)),
+    Cb2Factor: rand(Number(el('cb2FactorMin').value), Number(el('cb2FactorMax').value))
   };
 }
 
-function mutateParams(p, fine){
+function getPhaseForIteration(iter, maxIter){
+  const ratio = maxIter > 0 ? iter / maxIter : 1;
+
+  if(ratio < 0.35){
+    return { name:'coarse', factor:1.00, randomRestartEvery:45, randomRestartProb:0.22 };
+  }
+  if(ratio < 0.65){
+    return { name:'medium', factor:0.45, randomRestartEvery:65, randomRestartProb:0.10 };
+  }
+  if(ratio < 0.88){
+    return { name:'fine', factor:0.18, randomRestartEvery:0, randomRestartProb:0 };
+  }
+  return { name:'very_fine', factor:0.07, randomRestartEvery:0, randomRestartProb:0 };
+}
+
+function mutateParams(p, mutationFactor = 1){
   const q = JSON.parse(JSON.stringify(p));
-  const keys = ['Rp','L','C','Rdc','Re','Le'];
+  const keys = ['Rp','L','C2','Rdc','split','C1Factor','Re1','Le1','Re2Scale','Le2Scale','Cb1Factor','Cb2Factor'];
   const k = keys[Math.floor(Math.random()*keys.length)];
 
+  const mf = clamp(mutationFactor, 0.02, 3.0);
+
   let scale;
-  if(Math.random() < 0.15){
-    scale = rand(0.3, 3.0);
+  const occasionalWideJump = Math.random() < (0.12 * Math.max(0.35, Math.min(1.0, mf)));
+  if(occasionalWideJump){
+    const span = clamp(0.55 * mf, 0.03, 0.95);
+    scale = rand(Math.max(0.18, 1 - span), 1 + span);
   } else {
-    scale = fine ? rand(0.96, 1.04) : rand(0.82, 1.18);
+    const span = clamp(0.18 * mf, 0.006, 0.40);
+    scale = rand(Math.max(0.60, 1 - span), 1 + span);
   }
 
   q[k] *= scale;
+
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
-  q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
+  q.C2 = clamp(q.C2, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
-  q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
-  q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
+  q.split = clamp(q.split, Number(el('splitMin').value), Number(el('splitMax').value));
+  q.C1Factor = clamp(q.C1Factor, Number(el('c1FactorMin').value), Number(el('c1FactorMax').value));
+  q.Re1 = clamp(q.Re1, Number(el('reMin').value), Number(el('reMax').value));
+  q.Le1 = clamp(q.Le1, Number(el('leMin').value), Number(el('leMax').value));
+  q.Re2Scale = clamp(q.Re2Scale, Number(el('re2ScaleMin').value), Number(el('re2ScaleMax').value));
+  q.Le2Scale = clamp(q.Le2Scale, Number(el('le2ScaleMin').value), Number(el('le2ScaleMax').value));
+  q.Cb1Factor = clamp(q.Cb1Factor, Number(el('cb1FactorMin').value), Number(el('cb1FactorMax').value));
+  q.Cb2Factor = clamp(q.Cb2Factor, Number(el('cb2FactorMin').value), Number(el('cb2FactorMax').value));
+
   return q;
 }
 
 function clampParamsToBounds(p){
   if(!p) return null;
-  const q = JSON.parse(JSON.stringify(p));
+  const q0 = upgradeLegacyParams(p);
+  const q = JSON.parse(JSON.stringify(q0));
+
   q.Rp = clamp(q.Rp, Number(el('rpMin').value), Number(el('rpMax').value));
   q.L = clamp(q.L, Number(el('lMin').value), Number(el('lMax').value));
-  q.C = clamp(q.C, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
+  q.C2 = clamp(q.C2, Number(el('cMin').value)*1e-12, Number(el('cMax').value)*1e-12);
   q.Rdc = clamp(q.Rdc, Number(el('rdcMin').value), Number(el('rdcMax').value));
-  q.Re = clamp(q.Re, Number(el('reMin').value), Number(el('reMax').value));
-  q.Le = clamp(q.Le, Number(el('leMin').value), Number(el('leMax').value));
+  q.split = clamp(q.split, Number(el('splitMin').value), Number(el('splitMax').value));
+  q.C1Factor = clamp(q.C1Factor, Number(el('c1FactorMin').value), Number(el('c1FactorMax').value));
+  q.Re1 = clamp(q.Re1, Number(el('reMin').value), Number(el('reMax').value));
+  q.Le1 = clamp(q.Le1, Number(el('leMin').value), Number(el('leMax').value));
+  q.Re2Scale = clamp(q.Re2Scale, Number(el('re2ScaleMin').value), Number(el('re2ScaleMax').value));
+  q.Le2Scale = clamp(q.Le2Scale, Number(el('le2ScaleMin').value), Number(el('le2ScaleMax').value));
+  q.Cb1Factor = clamp(q.Cb1Factor, Number(el('cb1FactorMin').value), Number(el('cb1FactorMax').value));
+  q.Cb2Factor = clamp(q.Cb2Factor, Number(el('cb2FactorMin').value), Number(el('cb2FactorMax').value));
+
   return q;
 }
 
 function makeStartPopulation(){
   const starts = [];
   if(lastFitParams){
-    starts.push(clampParamsToBounds(lastFitParams));
+    const last = clampParamsToBounds(lastFitParams);
+    starts.push(last);
+
     for(let i=0;i<8;i++){
-      const q = JSON.parse(JSON.stringify(clampParamsToBounds(lastFitParams)));
-      q.Rp*=rand(0.92,1.08);
-      q.L*=rand(0.96,1.04);
-      q.C*=rand(0.92,1.08);
-      q.Rdc*=rand(0.96,1.04);
-      q.Re*=rand(0.85,1.15);
-      q.Le*=rand(0.85,1.15);
-      starts.push(mutateParams(q, true));
+      const q = JSON.parse(JSON.stringify(last));
+      q.Rp *= rand(0.92,1.08);
+      q.L *= rand(0.96,1.04);
+      q.C2 *= rand(0.92,1.08);
+      q.Rdc *= rand(0.96,1.04);
+      q.split *= rand(0.95,1.05);
+      q.C1Factor *= rand(0.85,1.15);
+      q.Re1 *= rand(0.85,1.15);
+      q.Le1 *= rand(0.85,1.15);
+      q.Re2Scale *= rand(0.85,1.15);
+      q.Le2Scale *= rand(0.85,1.15);
+      q.Cb1Factor *= rand(0.85,1.15);
+      q.Cb2Factor *= rand(0.85,1.15);
+      starts.push(clampParamsToBounds(q));
     }
   }
 
-  starts.push(clampParamsToBounds({Rp:150000,L:1.7,C:100e-12,Rdc:4300,Re:70000,Le:3.5}));
-  starts.push(clampParamsToBounds({Rp:120000,L:1.5,C:80e-12,Rdc:4000,Re:50000,Le:2.0}));
-  starts.push(clampParamsToBounds({Rp:180000,L:2.0,C:120e-12,Rdc:5000,Re:100000,Le:5.0}));
+  starts.push(clampParamsToBounds({
+    Rp:150000,
+    L:1.7,
+    C2:100e-12,
+    Rdc:4300,
+    split:0.5,
+    C1Factor:0.15,
+    Re1:70000,
+    Le1:3.5,
+    Re2Scale:1.0,
+    Le2Scale:1.0,
+    Cb1Factor:0.15,
+    Cb2Factor:0.15
+  }));
+
+  starts.push(clampParamsToBounds({
+    Rp:120000,
+    L:1.5,
+    C2:80e-12,
+    Rdc:4000,
+    split:0.45,
+    C1Factor:0.08,
+    Re1:50000,
+    Le1:2.0,
+    Re2Scale:1.2,
+    Le2Scale:1.0,
+    Cb1Factor:0.10,
+    Cb2Factor:0.18
+  }));
+
+  starts.push(clampParamsToBounds({
+    Rp:180000,
+    L:2.0,
+    C2:120e-12,
+    Rdc:5000,
+    split:0.55,
+    C1Factor:0.22,
+    Re1:100000,
+    Le1:5.0,
+    Re2Scale:0.9,
+    Le2Scale:1.2,
+    Cb1Factor:0.18,
+    Cb2Factor:0.22
+  }));
 
   while(starts.length < 80) starts.push(randomParams());
   return starts;
@@ -1292,6 +1518,27 @@ function drawPlot(canvas, x, yFit, yTarget, title, yUnit, logY, yMinFixed=null, 
   }
 }
 
+function redrawLoadPlot(){
+  if(!bestParams || !loadedData || !freq.length) return;
+
+  const y = loadResponse(bestParams);
+  const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
+  const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
+  const lim = getHPlotLimits();
+
+  drawPlot(
+    el('plot5'),
+    freq,
+    y.map(v=>v+hOffset),
+    null,
+    'H Magnitude with Load',
+    'dB',
+    false,
+    lim.min,
+    lim.max
+  );
+}
+
 function redrawAll(){
   if(!bestParams || !loadedData || !freq.length) return;
 
@@ -1352,6 +1599,8 @@ function redrawAll(){
     'deg',
     false
   );
+
+  redrawLoadPlot();
 }
 
 function loadResponse(p){
@@ -1361,11 +1610,9 @@ function loadResponse(p){
   const out = [];
 
   for(const f of freq){
-    const internal = buildInternalModel(p,f);
     const loadY = buildParallelLoadAdmittance(f, {R,L,C});
-    const ZoutLoaded = applyParallelLoadToZsh(internal.Zsh, loadY);
-    const Hload = div(ZoutLoaded, add(internal.Zs, ZoutLoaded));
-    out.push(20*Math.log10(absC(Hload)));
+    const m = solveDistributedNetwork(p, f, loadY);
+    out.push(m.Hm);
   }
   return out;
 }
@@ -1374,12 +1621,15 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
   const simFit = simulateCurvesForFit(bestParams, fitMeta);
   const hOffset = computeHDisplayOffset(simFit, fitMeta);
   const alpha = Number(el('formFocus').value)/100;
+  const d = getDerivedParams(bestParams);
 
   const ePhys = errorPhysical(simFit, fitMeta);
   const eForm = errorForm(simFit, fitMeta);
 
   const meas = fitMeta && fitMeta.measSettings ? fitMeta.measSettings : getMeasurementLoadSettings();
   const qc = fitMeta && fitMeta.qConstraint ? fitMeta.qConstraint : getQConstraintSettings();
+  const fc = fitMeta && fitMeta.fitControl ? fitMeta.fitControl : getFitControlSettings();
+  const runInfo = fitMeta && fitMeta.fitRunInfo ? fitMeta.fitRunInfo : null;
 
   let Q_model = null;
   let objective_q_term = null;
@@ -1388,7 +1638,7 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     qc.enabled &&
     Number.isFinite(qc.Q_meas) && qc.Q_meas > 0 &&
     Number.isFinite(qc.f_meas) && qc.f_meas > 0 &&
-    Number.isFinite(qc.Q_weight)
+    Number.isFinite(qc.Q_weight) && qc.Q_weight >= 0
   ){
     Q_model = computeModelQAtFrequency(bestParams, qc.f_meas);
     if(Number.isFinite(Q_model)){
@@ -1398,11 +1648,29 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
 
   return {
     Rp: +bestParams.Rp.toFixed(3),
-    L_H: +bestParams.L.toFixed(6),
-    C_pF: +(bestParams.C*1e12).toFixed(3),
-    Rdc: +bestParams.Rdc.toFixed(3),
-    Re: +bestParams.Re.toFixed(3),
-    Le_H: +bestParams.Le.toFixed(6),
+    L_total_H: +bestParams.L.toFixed(6),
+    Rdc_total_ohm: +bestParams.Rdc.toFixed(3),
+    C2_main_pF: +(bestParams.C2*1e12).toFixed(3),
+    split: +bestParams.split.toFixed(6),
+    C1_over_C2_factor: +bestParams.C1Factor.toFixed(6),
+    Re1_ohm: +bestParams.Re1.toFixed(3),
+    Le1_H: +bestParams.Le1.toFixed(6),
+    Re2_over_Re1_scale: +bestParams.Re2Scale.toFixed(6),
+    Le2_over_Le1_scale: +bestParams.Le2Scale.toFixed(6),
+    Cb1_over_C2_factor: +bestParams.Cb1Factor.toFixed(6),
+    Cb2_over_C2_factor: +bestParams.Cb2Factor.toFixed(6),
+
+    derived_L1_H: +d.L1.toFixed(6),
+    derived_L2_H: +d.L2.toFixed(6),
+    derived_Rdc1_ohm: +d.Rdc1.toFixed(3),
+    derived_Rdc2_ohm: +d.Rdc2.toFixed(3),
+    derived_C1_pF: +(d.C1*1e12).toFixed(3),
+    derived_C2_pF: +(d.C2*1e12).toFixed(3),
+    derived_Cb1_pF: +(d.Cb1*1e12).toFixed(3),
+    derived_Cb2_pF: +(d.Cb2*1e12).toFixed(3),
+    derived_Re2_ohm: +d.Re2.toFixed(3),
+    derived_Le2_H: +d.Le2.toFixed(6),
+
     objective: +((bestObjective ?? 0)).toFixed(6),
     objective_physical: +ePhys.toFixed(6),
     objective_form: +eForm.toFixed(6),
@@ -1412,22 +1680,44 @@ function buildParamsReport(bestParams, bestObjective, fitMeta){
     low_anchor_hz: +fitMeta.lowHz.toFixed(1),
     dip_focus_hz: +fitMeta.fDip.toFixed(1),
     peak_focus_hz: +fitMeta.fPeak.toFixed(1),
+
     auto_c_bounds_applied: !!(fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied),
-    auto_c_min_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMin_pF.toFixed(3) : null,
-    auto_c_max_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMax_pF.toFixed(3) : null,
+    auto_c2_min_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMin_pF.toFixed(3) : null,
+    auto_c2_max_pF: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.cMax_pF.toFixed(3) : null,
     resonance_used_hz: fitMeta.cBoundsInfo && fitMeta.cBoundsInfo.applied ? +fitMeta.cBoundsInfo.f0_Hz.toFixed(1) : null,
     c_bounds_reason: fitMeta.cBoundsInfo && !fitMeta.cBoundsInfo.applied ? fitMeta.cBoundsInfo.reason : null,
+    resonance_guided_bounds_apply_only_to_C2: true,
+
     measurement_load_used_in_fit: !!meas.enabled,
     measurement_load_apply_mode: meas.enabled ? meas.mode : null,
     measurement_load_Rin_ohm: meas.enabled ? +meas.R.toFixed(3) : null,
     measurement_load_Cin_pF: meas.enabled ? +(meas.C*1e12).toFixed(3) : null,
     measurement_load_Lin_H: meas.enabled ? +meas.L.toFixed(6) : null,
+
     q_constraint_active: !!qc.enabled,
     Q_meas: qc.enabled && Number.isFinite(qc.Q_meas) ? +qc.Q_meas.toFixed(6) : null,
     f_meas: qc.enabled && Number.isFinite(qc.f_meas) ? +qc.f_meas.toFixed(3) : null,
     Q_model: Number.isFinite(Q_model) ? +Q_model.toFixed(6) : null,
     Q_weight: qc.enabled && Number.isFinite(qc.Q_weight) ? +qc.Q_weight.toFixed(6) : null,
     h_phase_correction_deg: fitMeta && Number.isFinite(fitMeta.hPhaseCorrectionDeg) ? fitMeta.hPhaseCorrectionDeg : 0,
+
+    target_error: +fc.targetError.toFixed(6),
+    max_iterations_per_start: fc.maxIterPerStart,
+    stall_limit: fc.stallLimit,
+    min_improvement: +fc.minImprovement.toFixed(6),
+    multi_stage_fit_active: true,
+    refinement_stages: ['coarse','medium','fine','very_fine'],
+
+    fit_stop_reason: runInfo ? runInfo.best_start_stop_reason : null,
+    fit_best_start_index: runInfo ? runInfo.best_start_index : null,
+    fit_best_iteration_in_start: runInfo ? runInfo.best_iteration_in_start : null,
+    fit_best_phase: runInfo ? runInfo.best_phase : null,
+    fit_best_error_seen: runInfo && Number.isFinite(runInfo.best_error_seen) ? +runInfo.best_error_seen.toFixed(6) : null,
+    fit_iterations_used_in_best_start: runInfo ? runInfo.best_start_iterations_used : null,
+    fit_stall_count_at_best_start_end: runInfo ? runInfo.best_start_final_stall_count : null,
+    fit_total_starts: runInfo ? runInfo.total_starts : null,
+
+    q_definition: "Series-equivalent Q = abs(Im(Zin)) / Re(Zin) at f_meas using full distributed input impedance",
     post_fit_plots_1_to_4_show_fit_condition: true,
     plot5_uses_pure_internal_model_only: true,
     additional_RL_LL_CL_load_is_separate_from_measurement_load: true
@@ -1440,6 +1730,12 @@ function saveAppState(){
       ui: {
         formFocus: el('formFocus').value,
         lowAnchorHz: el('lowAnchorHz').value,
+
+        targetError: el('targetError').value,
+        maxIterPerStart: el('maxIterPerStart').value,
+        stallLimit: el('stallLimit').value,
+        minImprovement: el('minImprovement').value,
+
         rpMin: el('rpMin').value,
         rpMax: el('rpMax').value,
         lMin: el('lMin').value,
@@ -1448,26 +1744,43 @@ function saveAppState(){
         cMax: el('cMax').value,
         rdcMin: el('rdcMin').value,
         rdcMax: el('rdcMax').value,
+        splitMin: el('splitMin').value,
+        splitMax: el('splitMax').value,
+        c1FactorMin: el('c1FactorMin').value,
+        c1FactorMax: el('c1FactorMax').value,
         reMin: el('reMin').value,
         reMax: el('reMax').value,
         leMin: el('leMin').value,
         leMax: el('leMax').value,
+        re2ScaleMin: el('re2ScaleMin').value,
+        re2ScaleMax: el('re2ScaleMax').value,
+        le2ScaleMin: el('le2ScaleMin').value,
+        le2ScaleMax: el('le2ScaleMax').value,
+        cb1FactorMin: el('cb1FactorMin').value,
+        cb1FactorMax: el('cb1FactorMax').value,
+        cb2FactorMin: el('cb2FactorMin').value,
+        cb2FactorMax: el('cb2FactorMax').value,
+
         loadR: el('loadR').value,
         loadL: el('loadL').value,
         loadC: el('loadC').value,
         hMin: el('hMin').value,
         hMax: el('hMax').value,
+
         useRL: el('useRL').checked,
         weightH: el('weightH').checked,
+
         useMeasLoad: el('useMeasLoad').checked,
         measR: el('measR').value,
         measL: el('measL').value,
         measC: el('measC').value,
         measApplyMode: el('measApplyMode').value,
+
         useQConstraint: el('useQConstraint').checked,
         qMeas: el('qMeas').value,
         qFreq: el('qFreq').value,
         qWeight: el('qWeight').value,
+
         applyHPhaseCorrection: el('applyHPhaseCorrection').checked
       },
       loadedData,
@@ -1494,6 +1807,12 @@ function restoreAppState(){
     if(state.ui){
       el('formFocus').value = state.ui.formFocus ?? el('formFocus').value;
       el('lowAnchorHz').value = state.ui.lowAnchorHz ?? el('lowAnchorHz').value;
+
+      el('targetError').value = state.ui.targetError ?? el('targetError').value;
+      el('maxIterPerStart').value = state.ui.maxIterPerStart ?? el('maxIterPerStart').value;
+      el('stallLimit').value = state.ui.stallLimit ?? el('stallLimit').value;
+      el('minImprovement').value = state.ui.minImprovement ?? el('minImprovement').value;
+
       el('rpMin').value = state.ui.rpMin ?? el('rpMin').value;
       el('rpMax').value = state.ui.rpMax ?? el('rpMax').value;
       el('lMin').value = state.ui.lMin ?? el('lMin').value;
@@ -1502,33 +1821,50 @@ function restoreAppState(){
       el('cMax').value = state.ui.cMax ?? el('cMax').value;
       el('rdcMin').value = state.ui.rdcMin ?? el('rdcMin').value;
       el('rdcMax').value = state.ui.rdcMax ?? el('rdcMax').value;
+      el('splitMin').value = state.ui.splitMin ?? el('splitMin').value;
+      el('splitMax').value = state.ui.splitMax ?? el('splitMax').value;
+      el('c1FactorMin').value = state.ui.c1FactorMin ?? el('c1FactorMin').value;
+      el('c1FactorMax').value = state.ui.c1FactorMax ?? el('c1FactorMax').value;
       el('reMin').value = state.ui.reMin ?? el('reMin').value;
       el('reMax').value = state.ui.reMax ?? el('reMax').value;
       el('leMin').value = state.ui.leMin ?? el('leMin').value;
       el('leMax').value = state.ui.leMax ?? el('leMax').value;
+      el('re2ScaleMin').value = state.ui.re2ScaleMin ?? el('re2ScaleMin').value;
+      el('re2ScaleMax').value = state.ui.re2ScaleMax ?? el('re2ScaleMax').value;
+      el('le2ScaleMin').value = state.ui.le2ScaleMin ?? el('le2ScaleMin').value;
+      el('le2ScaleMax').value = state.ui.le2ScaleMax ?? el('le2ScaleMax').value;
+      el('cb1FactorMin').value = state.ui.cb1FactorMin ?? el('cb1FactorMin').value;
+      el('cb1FactorMax').value = state.ui.cb1FactorMax ?? el('cb1FactorMax').value;
+      el('cb2FactorMin').value = state.ui.cb2FactorMin ?? el('cb2FactorMin').value;
+      el('cb2FactorMax').value = state.ui.cb2FactorMax ?? el('cb2FactorMax').value;
+
       el('loadR').value = state.ui.loadR ?? el('loadR').value;
       el('loadL').value = state.ui.loadL ?? el('loadL').value;
       el('loadC').value = state.ui.loadC ?? el('loadC').value;
       el('hMin').value = state.ui.hMin ?? el('hMin').value;
       el('hMax').value = state.ui.hMax ?? el('hMax').value;
+
       el('useRL').checked = !!state.ui.useRL;
       el('weightH').checked = !!state.ui.weightH;
+
       el('useMeasLoad').checked = !!state.ui.useMeasLoad;
       el('measR').value = state.ui.measR ?? el('measR').value;
       el('measL').value = state.ui.measL ?? el('measL').value;
       el('measC').value = state.ui.measC ?? el('measC').value;
       el('measApplyMode').value = state.ui.measApplyMode ?? el('measApplyMode').value;
+
       el('useQConstraint').checked = !!state.ui.useQConstraint;
       el('qMeas').value = state.ui.qMeas ?? el('qMeas').value;
       el('qFreq').value = state.ui.qFreq ?? el('qFreq').value;
       el('qWeight').value = state.ui.qWeight ?? el('qWeight').value;
+
       el('applyHPhaseCorrection').checked = !!state.ui.applyHPhaseCorrection;
       updateFocusLabel();
     }
 
     loadedData = state.loadedData || null;
-    bestParams = state.bestParams || null;
-    lastFitParams = state.lastFitParams || null;
+    bestParams = state.bestParams ? clampParamsToBounds(state.bestParams) : null;
+    lastFitParams = state.lastFitParams ? clampParamsToBounds(state.lastFitParams) : null;
     fitMeta = state.fitMeta || null;
     bestObjective = state.bestObjective ?? null;
 
@@ -1537,9 +1873,14 @@ function restoreAppState(){
     }
 
     if(bestParams && loadedData && freq.length){
+      const savedFitMeta = state.fitMeta || null;
+
       fitMeta = buildFitMeta(loadedData);
-      if(state.fitMeta && state.fitMeta.cBoundsInfo){
-        fitMeta.cBoundsInfo = state.fitMeta.cBoundsInfo;
+      if(savedFitMeta && savedFitMeta.cBoundsInfo){
+        fitMeta.cBoundsInfo = savedFitMeta.cBoundsInfo;
+      }
+      if(savedFitMeta && savedFitMeta.fitRunInfo){
+        fitMeta.fitRunInfo = savedFitMeta.fitRunInfo;
       }
 
       redrawAll();
@@ -1548,12 +1889,6 @@ function restoreAppState(){
         buildParamsReport(bestParams, bestObjective, fitMeta),
         null, 2
       );
-
-      const y = loadResponse(bestParams);
-      const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
-      const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
-      const lim = getHPlotLimits();
-      drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
     }
 
     setStatus('Previous state restored.');
@@ -1566,6 +1901,27 @@ function restoreAppState(){
 
 function clearAppState(){
   localStorage.removeItem('pickupFitterState');
+}
+
+function buildFitStatusPrefix(meta){
+  const parts = ['Fit running ...'];
+
+  const meas = meta ? meta.measSettings : null;
+  if(meas && meas.enabled){
+    parts.push(`measurement load active (${meas.mode === 'hOnly' ? 'H only' : 'H and Z'})`);
+  }
+
+  if(meta && meta.cBoundsInfo && meta.cBoundsInfo.applied){
+    parts.push(`resonance-guided C2 bounds ${meta.cBoundsInfo.cMin_pF.toFixed(1)}...${meta.cBoundsInfo.cMax_pF.toFixed(1)} pF`);
+  }
+
+  return parts.join(' | ');
+}
+
+function maybeUpdateFitStatus(prefix, startIndex, totalStarts, phaseName, iter, maxIter, currentBest, currentStartError){
+  setStatus(
+    `${prefix} | start ${startIndex}/${totalStarts} | phase ${phaseName} | iter ${iter}/${maxIter} | start err ${currentStartError.toFixed(6)} | best ${currentBest.toFixed(6)}`
+  );
 }
 
 async function runFit(){
@@ -1594,52 +1950,160 @@ async function runFit(){
     const cBoundsInfo = applyResonanceGuidedCBounds(fitMeta);
     fitMeta.cBoundsInfo = cBoundsInfo;
 
+    const fitControl = getFitControlSettings();
+    fitMeta.fitControl = fitControl;
+
     let best = null;
     let bestE = 1e99;
     const starts = makeStartPopulation();
-    const iters = 260;
 
-    const meas = fitMeta.measSettings;
-    let baseStatus = 'Fit running ...';
-    if(meas && meas.enabled){
-      baseStatus = `Fit running ... measurement load active (${meas.mode === 'hOnly' ? 'H only' : 'H and Z'})`;
-    }
+    let bestRunInfo = {
+      total_starts: starts.length,
+      best_start_index: null,
+      best_iteration_in_start: null,
+      best_phase: null,
+      best_error_seen: null,
+      best_start_stop_reason: null,
+      best_start_iterations_used: null,
+      best_start_final_stall_count: null
+    };
 
-    if(cBoundsInfo.applied){
-      setStatus(`${baseStatus} | resonance-guided C bounds applied (${cBoundsInfo.cMin_pF.toFixed(1)} pF ... ${cBoundsInfo.cMax_pF.toFixed(1)} pF)`);
-    } else {
-      setStatus(baseStatus);
-    }
+    const baseStatus = buildFitStatusPrefix(fitMeta);
+    setStatus(baseStatus);
 
     for(let s=0; s<starts.length; s++){
       let p = JSON.parse(JSON.stringify(starts[s]));
       let e = errorOf(p, fitMeta);
 
-      if(e < bestE){ best = JSON.parse(JSON.stringify(p)); bestE = e; }
+      let iter = 0;
+      let stallCount = 0;
+      let terminationReason = 'max_iterations_per_start';
 
-      for(let i=0;i<iters;i++){
-        if(i % 40 === 0 && Math.random() < 0.3){
-          p = randomParams();
-          e = errorOf(p, fitMeta);
-        }
-
-        const q = mutateParams(p, i < iters*0.7);
-        const eq = errorOf(q, fitMeta);
-        if(eq < e){ p = q; e = eq; }
-        if(eq < bestE){ best = JSON.parse(JSON.stringify(q)); bestE = eq; }
+      if(e < bestE){
+        best = JSON.parse(JSON.stringify(p));
+        bestE = e;
+        bestRunInfo.best_start_index = s + 1;
+        bestRunInfo.best_iteration_in_start = 0;
+        bestRunInfo.best_phase = 'initial';
+        bestRunInfo.best_error_seen = e;
       }
 
-      if(cBoundsInfo.applied){
-        setStatus(`${baseStatus} | start ${s+1}/${starts.length} | C bounds ${cBoundsInfo.cMin_pF.toFixed(1)}...${cBoundsInfo.cMax_pF.toFixed(1)} pF`);
+      if(e <= fitControl.targetError){
+        terminationReason = 'target_error';
       } else {
-        setStatus(`${baseStatus} | start ${s+1}/${starts.length}`);
+        while(iter < fitControl.maxIterPerStart){
+          iter++;
+
+          const phase = getPhaseForIteration(iter - 1, fitControl.maxIterPerStart);
+
+          if(
+            phase.randomRestartEvery > 0 &&
+            iter % phase.randomRestartEvery === 0 &&
+            Math.random() < phase.randomRestartProb
+          ){
+            const exploratory = Math.random() < 0.5
+              ? randomParams()
+              : mutateParams(best || p, Math.max(0.9, phase.factor * 1.25));
+
+            const exploratoryError = errorOf(exploratory, fitMeta);
+            if(exploratoryError < e){
+              const improvement = e - exploratoryError;
+              p = exploratory;
+              e = exploratoryError;
+              if(improvement > fitControl.minImprovement){
+                stallCount = 0;
+              } else {
+                stallCount++;
+              }
+            } else {
+              stallCount++;
+            }
+
+            if(exploratoryError < bestE){
+              best = JSON.parse(JSON.stringify(exploratory));
+              bestE = exploratoryError;
+              bestRunInfo.best_start_index = s + 1;
+              bestRunInfo.best_iteration_in_start = iter;
+              bestRunInfo.best_phase = phase.name;
+              bestRunInfo.best_error_seen = exploratoryError;
+            }
+
+            if(e <= fitControl.targetError){
+              terminationReason = 'target_error';
+              break;
+            }
+            if(stallCount >= fitControl.stallLimit){
+              terminationReason = 'stall_limit';
+              break;
+            }
+          }
+
+          const q = mutateParams(p, phase.factor);
+          const eq = errorOf(q, fitMeta);
+
+          if(eq < e){
+            const improvement = e - eq;
+            p = q;
+            e = eq;
+
+            if(improvement > fitControl.minImprovement){
+              stallCount = 0;
+            } else {
+              stallCount++;
+            }
+          } else {
+            stallCount++;
+          }
+
+          if(eq < bestE){
+            best = JSON.parse(JSON.stringify(q));
+            bestE = eq;
+            bestRunInfo.best_start_index = s + 1;
+            bestRunInfo.best_iteration_in_start = iter;
+            bestRunInfo.best_phase = phase.name;
+            bestRunInfo.best_error_seen = eq;
+          }
+
+          if(iter === 1 || iter % 20 === 0 || eq < bestE){
+            maybeUpdateFitStatus(baseStatus, s+1, starts.length, phase.name, iter, fitControl.maxIterPerStart, bestE, e);
+            await new Promise(r => setTimeout(r, 0));
+          }
+
+          if(e <= fitControl.targetError){
+            terminationReason = 'target_error';
+            break;
+          }
+
+          if(stallCount >= fitControl.stallLimit){
+            terminationReason = 'stall_limit';
+            break;
+          }
+        }
       }
+
+      if(bestRunInfo.best_start_index === s + 1){
+        bestRunInfo.best_start_stop_reason = terminationReason;
+        bestRunInfo.best_start_iterations_used = iter;
+        bestRunInfo.best_start_final_stall_count = stallCount;
+      }
+
+      maybeUpdateFitStatus(
+        baseStatus,
+        s+1,
+        starts.length,
+        getPhaseForIteration(Math.max(0, Math.min(iter, fitControl.maxIterPerStart)-1), fitControl.maxIterPerStart).name,
+        iter,
+        fitControl.maxIterPerStart,
+        bestE,
+        e
+      );
       await new Promise(r => setTimeout(r, 0));
     }
 
     bestParams = best;
     bestObjective = bestE;
-    lastFitParams = JSON.parse(JSON.stringify(best));
+    lastFitParams = best ? JSON.parse(JSON.stringify(best)) : null;
+    fitMeta.fitRunInfo = bestRunInfo;
 
     el('paramsOut').textContent = JSON.stringify(
       buildParamsReport(bestParams, bestObjective, fitMeta),
@@ -1647,7 +2111,7 @@ async function runFit(){
     );
 
     redrawAll();
-    setStatus('Fit finished.');
+    setStatus(`Fit finished. Best error: ${bestE.toFixed(6)}.`);
     saveAppState();
   } catch(err){
     console.error(err);
@@ -1657,11 +2121,7 @@ async function runFit(){
 
 function calcLoad(){
   if(!bestParams){ setStatus('Run a fit first.'); return; }
-  const y = loadResponse(bestParams);
-  const simDisplay = simulateCurvesForFit(bestParams, fitMeta);
-  const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
-  const lim = getHPlotLimits();
-  drawPlot(el('plot5'), freq, y.map(v=>v+hOffset), null, 'H Magnitude with Load', 'dB', false, lim.min, lim.max);
+  redrawLoadPlot();
   setStatus('Loaded H magnitude calculated from pure fitted pickup model.');
   saveAppState();
 }
@@ -1684,9 +2144,54 @@ function resetFitMemory(){
   });
 }
 
+function redrawIfPossible(){
+  if(bestParams && loadedData && freq.length){
+    const savedCInfo = fitMeta && fitMeta.cBoundsInfo ? fitMeta.cBoundsInfo : null;
+    const savedRunInfo = fitMeta && fitMeta.fitRunInfo ? fitMeta.fitRunInfo : null;
+
+    fitMeta = buildFitMeta(loadedData);
+    if(savedCInfo) fitMeta.cBoundsInfo = savedCInfo;
+    if(savedRunInfo) fitMeta.fitRunInfo = savedRunInfo;
+
+    redrawAll();
+    el('paramsOut').textContent = JSON.stringify(
+      buildParamsReport(bestParams, bestObjective, fitMeta),
+      null, 2
+    );
+  }
+}
+
 el('fitBtn').addEventListener('click', runFit);
 el('loadBtn').addEventListener('click', calcLoad);
 el('resetBtn').addEventListener('click', resetFitMemory);
+
+['hMin','hMax','loadR','loadL','loadC'].forEach(id => {
+  el(id).addEventListener('input', () => {
+    if(bestParams && loadedData && freq.length){
+      redrawAll();
+      saveAppState();
+    }
+  });
+});
+
+[
+  'useRL','weightH',
+  'useMeasLoad','measR','measL','measC','measApplyMode',
+  'useQConstraint','qMeas','qFreq','qWeight',
+  'applyHPhaseCorrection',
+  'formFocus','lowAnchorHz',
+  'targetError','maxIterPerStart','stallLimit','minImprovement',
+  'rpMin','rpMax','lMin','lMax','cMin','cMax','rdcMin','rdcMax',
+  'splitMin','splitMax','c1FactorMin','c1FactorMax',
+  'reMin','reMax','leMin','leMax',
+  're2ScaleMin','re2ScaleMax','le2ScaleMin','le2ScaleMax',
+  'cb1FactorMin','cb1FactorMax','cb2FactorMin','cb2FactorMax'
+].forEach(id => {
+  el(id).addEventListener('change', () => {
+    saveAppState();
+    redrawIfPossible();
+  });
+});
 
 restoreAppState();
 
