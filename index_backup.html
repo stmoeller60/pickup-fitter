@@ -393,6 +393,47 @@ function unwrapPhaseArrayDeg(arr){
   return out;
 }
 
+function unwrapPhaseArrayDegAnchored(arr, anchorIdx = 0){
+  if(!arr || !arr.length) return arr ? arr.slice() : null;
+
+  const out = new Array(arr.length);
+  anchorIdx = clamp(Math.round(anchorIdx), 0, arr.length - 1);
+
+  out[anchorIdx] = arr[anchorIdx];
+
+  for(let i=anchorIdx+1; i<arr.length; i++){
+    const v = arr[i];
+    const prevRaw = arr[i-1];
+    const prevOut = out[i-1];
+
+    if(!Number.isFinite(v) || !Number.isFinite(prevRaw) || !Number.isFinite(prevOut)){
+      out[i] = v;
+      continue;
+    }
+
+    let delta = v - prevRaw;
+    delta = wrapPhaseDeg(delta);
+    out[i] = prevOut + delta;
+  }
+
+  for(let i=anchorIdx-1; i>=0; i--){
+    const v = arr[i];
+    const nextRaw = arr[i+1];
+    const nextOut = out[i+1];
+
+    if(!Number.isFinite(v) || !Number.isFinite(nextRaw) || !Number.isFinite(nextOut)){
+      out[i] = v;
+      continue;
+    }
+
+    let delta = v - nextRaw;
+    delta = wrapPhaseDeg(delta);
+    out[i] = nextOut + delta;
+  }
+
+  return out;
+}
+
 function computePhaseErrorArrayDeg(simArr, targetArr){
   if(!simArr || !targetArr || simArr.length !== targetArr.length) return null;
   const out = new Array(simArr.length);
@@ -1258,10 +1299,59 @@ function redrawAll(){
   const hOffset = computeHDisplayOffset(simDisplay, fitMeta);
   const lim = getHPlotLimits();
 
-  drawPlot(el('plot1'), freq, simDisplay.Hm.map(v=>v+hOffset), fitMeta ? fitMeta.hmagT : targetArray(loadedData.hmag), 'H Magnitude', 'dB', false, lim.min, lim.max);
-  drawPlot(el('plot2'), freq, simDisplay.Hp, fitMeta ? fitMeta.hphT : targetArray(loadedData.hph), 'H Phase', 'deg', false);
-  drawPlot(el('plot3'), freq, simDisplay.Zm, fitMeta ? fitMeta.zmagT : targetArray(loadedData.zmag), 'Z Magnitude', 'Ohm', true);
-  drawPlot(el('plot4'), freq, simDisplay.Zp, fitMeta ? fitMeta.zphT : targetArray(loadedData.zph), 'Z Phase', 'deg', false);
+  drawPlot(
+    el('plot1'),
+    freq,
+    simDisplay.Hm.map(v=>v+hOffset),
+    fitMeta ? fitMeta.hmagT : targetArray(loadedData.hmag),
+    'H Magnitude',
+    'dB',
+    false,
+    lim.min,
+    lim.max
+  );
+
+  const hPhaseAnchorIdx = 0;
+  const Hp_fit_plot = unwrapPhaseArrayDegAnchored(simDisplay.Hp, hPhaseAnchorIdx);
+  const Hp_target_plot = fitMeta && fitMeta.hphT
+    ? unwrapPhaseArrayDegAnchored(fitMeta.hphT, hPhaseAnchorIdx)
+    : null;
+
+  drawPlot(
+    el('plot2'),
+    freq,
+    Hp_fit_plot,
+    Hp_target_plot,
+    'H Phase',
+    'deg',
+    false
+  );
+
+  drawPlot(
+    el('plot3'),
+    freq,
+    simDisplay.Zm,
+    fitMeta ? fitMeta.zmagT : targetArray(loadedData.zmag),
+    'Z Magnitude',
+    'Ohm',
+    true
+  );
+
+  const zPhaseAnchorIdx = 0;
+  const Zp_fit_plot = unwrapPhaseArrayDegAnchored(simDisplay.Zp, zPhaseAnchorIdx);
+  const Zp_target_plot = fitMeta && fitMeta.zphT
+    ? unwrapPhaseArrayDegAnchored(fitMeta.zphT, zPhaseAnchorIdx)
+    : null;
+
+  drawPlot(
+    el('plot4'),
+    freq,
+    Zp_fit_plot,
+    Zp_target_plot,
+    'Z Phase',
+    'deg',
+    false
+  );
 }
 
 function loadResponse(p){
